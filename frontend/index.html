@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AeroShare OS | Peer-to-Peer Local & Cross-Network File Transfer</title>
+
+  <!-- Global Diagnostic Error Handler -->
+  <script>
+    window.addEventListener('error', function(e) {
+      // Don't duplicate
+      if (document.getElementById('sys-runtime-error-dialog')) return;
+      const errDiv = document.createElement('div');
+      errDiv.id = 'sys-runtime-error-dialog';
+      errDiv.style.position = 'fixed';
+      errDiv.style.top = '30px';
+      errDiv.style.left = '50%';
+      errDiv.style.transform = 'translateX(-50%)';
+      errDiv.style.background = '#ef4444';
+      errDiv.style.color = '#ffffff';
+      errDiv.style.padding = '20px';
+      errDiv.style.borderRadius = '10px';
+      errDiv.style.zIndex = '999999';
+      errDiv.style.fontSize = '12px';
+      errDiv.style.fontFamily = 'monospace';
+      errDiv.style.boxShadow = '0 20px 40px rgba(0,0,0,0.6)';
+      errDiv.style.border = '2px solid rgba(255,255,255,0.2)';
+      errDiv.style.maxWidth = '500px';
+      errDiv.style.width = '90%';
+      errDiv.style.whiteSpace = 'pre-wrap';
+      errDiv.innerHTML = '<div style="font-weight: bold; font-size: 15px; margin-bottom: 10px;">⚠️ AeroShare OS System Error</div>' +
+                          'An unexpected browser error has occurred during boot:\n\n' + 
+                          '<strong>Error:</strong> ' + e.message + '\n' +
+                          '<strong>Source:</strong> ' + e.filename.split('/').pop() + ' (Line: ' + e.lineno + ')\n\n' +
+                          '<div style="text-align: right;"><button onclick="this.parentElement.parentElement.remove()" style="background: rgba(255,255,255,0.2); border: 1px solid white; color: white; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px;">Dismiss</button></div>';
+      if (document.body) {
+        document.body.appendChild(errDiv);
+      } else {
+        document.documentElement.appendChild(errDiv);
+      }
+    });
+  </script>
+  
+  <!-- SEO & Optimization Meta Tags -->
+  <meta name="description" content="AeroShare OS is a high-speed, local and cross-network file sharing system. Enjoy drag-and-drop chunked uploads, resumable streams, direct WebRTC P2P transfers, and customizable computer interface themes.">
+  <meta name="keywords" content="P2P file transfer, LAN share, WebRTC data channel, resumable file upload, local server, fileshare, desktop web app">
+  <meta name="author" content="AeroSync Development Group">
+  
+  <!-- Modern Typography (Google Fonts) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;700&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- CSS Vector Icons (Bootstrap Icons) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  
+  <!-- Core UI Stylesheet -->
+  <link rel="stylesheet" href="style.css?v=2.4">
+</head>
+<body class="theme-aero">
+
+  <!-- Device Security Authorization Screen -->
+  <div class="prompt-overlay" id="auth-overlay" style="display: none;">
+    <div class="prompt-dialog" style="max-width: 400px; width: 90%;">
+      <div class="prompt-header">
+        <i class="bi bi-shield-lock-fill text-accent" style="color: var(--accent); font-size: 28px;"></i>
+        <h5>Device Authorization Required</h5>
+      </div>
+      <div class="prompt-body mt-2">
+        <p class="text-secondary small mb-3">To connect this device and share files, please choose your device name and enter the security OTP code displayed on the host laptop.</p>
+        <div class="mb-3">
+          <label for="auth-username" class="form-label text-white small" style="display: block; margin-bottom: 6px;">Device Nickname</label>
+          <input type="text" id="auth-username" class="form-control" placeholder="e.g. Phone, Tablet, Laptop 2" style="background: rgba(0,0,0,0.3); border: var(--window-border); color: #fff; padding: 8px 12px; border-radius: 6px; width: 100%; box-sizing: border-box; outline: none;">
+        </div>
+        <div class="mb-3">
+          <label for="auth-otp" class="form-label text-white small" style="display: block; margin-bottom: 6px;">6-Digit Authorization OTP</label>
+          <input type="text" id="auth-otp" class="form-control text-center" placeholder="000000" maxlength="6" style="background: rgba(0,0,0,0.3); border: var(--window-border); color: #fff; padding: 10px; border-radius: 6px; font-size: 22px; letter-spacing: 6px; font-weight: bold; width: 100%; text-align: center; box-sizing: border-box; outline: none;">
+        </div>
+        <div id="auth-error-msg" class="text-danger small mt-2" style="display: none; font-weight: 500; font-size: 11px;"></div>
+      </div>
+      <div class="prompt-footer mt-4" style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button class="btn btn-primary w-100" id="btn-submit-auth" style="padding: 10px 16px; border-radius: 6px;">Verify &amp; Authorize</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main System Headline (Required for Accessibility, visually hidden on desktop themes) -->
+  <h1 class="system-hidden-title" id="main-system-heading">AeroShare Operating System File Server Portal</h1>
+
+  <!-- Desktop Work Area Grid -->
+  <div class="desktop-area" id="desktop-area">
+    
+    <!-- App Shortcuts on Desktop Grid -->
+    <div class="desktop-grid" id="desktop-grid" role="navigation" aria-label="Desktop Shortcuts">
+      
+      <button class="desktop-shortcut" id="shortcut-files" title="Open File Explorer" aria-haspopup="true">
+        <div class="shortcut-icon icon-files">
+          <i class="bi bi-folder2-open"></i>
+        </div>
+        <span class="shortcut-label">My Shared Files</span>
+      </button>
+
+      <button class="desktop-shortcut" id="shortcut-transfers" title="Open Transfer Queue" aria-haspopup="true">
+        <div class="shortcut-icon icon-transfers">
+          <i class="bi bi-arrow-down-up"></i>
+          <span class="badge" id="badge-transfer-count" style="display: none;">0</span>
+        </div>
+        <span class="shortcut-label">Transfers</span>
+      </button>
+
+      <button class="desktop-shortcut" id="shortcut-radar" title="Open LAN Discovery Radar" aria-haspopup="true">
+        <div class="shortcut-icon icon-radar">
+          <i class="bi bi-radar"></i>
+          <span class="badge" id="badge-peer-count" style="display: none;">0</span>
+        </div>
+        <span class="shortcut-label">Network Peers</span>
+      </button>
+
+      <button class="desktop-shortcut" id="shortcut-settings" title="Open System Settings" aria-haspopup="true">
+        <div class="shortcut-icon icon-settings">
+          <i class="bi bi-gear-wide-connected"></i>
+        </div>
+        <span class="shortcut-label">System Control</span>
+      </button>
+
+      <button class="desktop-shortcut" id="shortcut-help" title="Open Help Center" aria-haspopup="true">
+        <div class="shortcut-icon icon-help">
+          <i class="bi bi-question-circle"></i>
+        </div>
+        <span class="shortcut-label">Help Guide</span>
+      </button>
+      
+    </div>
+
+    <!-- Floating Application Windows Space Container -->
+    <main class="window-space" id="window-space" aria-label="Active Desktop Windows">
+      
+      <!-- 1. FILE EXPLORER WINDOW -->
+      <section class="sys-window" id="window-files" style="top: 8%; left: 10%; width: 50%; height: 65%;" aria-labelledby="title-files">
+        <header class="window-title-bar" id="title-files-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-folder2-open me-2"></i>
+            <span class="title-text" id="title-files">File Explorer</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-files" title="Minimize Window" aria-label="Minimize File Explorer"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-files" title="Maximize Window" aria-label="Maximize File Explorer"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-files" title="Close Window" aria-label="Close File Explorer"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body explorer-body">
+          <!-- Sidebar Info -->
+          <aside class="explorer-sidebar" aria-label="Storage details">
+            <div class="sidebar-header">
+              <h6>AeroShare Drive</h6>
+              <small id="drive-node-ip">127.0.0.1</small>
+            </div>
+            <div class="storage-card">
+              <div class="d-flex justify-content-between mb-1">
+                <span>Active Files</span>
+                <strong id="sidebar-file-count">0</strong>
+              </div>
+              <hr class="divider">
+              <!-- Upload Action -->
+              <label for="input-file-uploader" class="btn btn-primary w-100 cursor-pointer" id="btn-upload-file">
+                <i class="bi bi-upload me-2"></i>Upload File
+                <input type="file" id="input-file-uploader" class="hidden-input" multiple>
+              </label>
+            </div>
+            <div class="sidebar-note">
+              <i class="bi bi-info-circle me-1"></i>
+              <span>Drop files anywhere inside the window to upload directly.</span>
+            </div>
+          </aside>
+          
+          <!-- Explorer File Grid / Table -->
+          <div class="explorer-main">
+            <div class="explorer-toolbar">
+              <div class="search-box">
+                <i class="bi bi-search"></i>
+                <input type="text" id="input-file-search" placeholder="Search shared files..." aria-label="Search files">
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-files" title="Refresh files list">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+              </button>
+            </div>
+
+            <!-- Drop Zone Overlay -->
+            <div class="drag-drop-overlay" id="drag-drop-zone">
+              <div class="drop-prompt">
+                <i class="bi bi-cloud-arrow-up"></i>
+                <p>Drop file here to upload to AeroShare Server</p>
+              </div>
+            </div>
+
+            <div class="file-table-container">
+              <table class="file-table" id="file-list-table">
+                <thead>
+                  <tr>
+                    <th scope="col" class="col-name">Name</th>
+                    <th scope="col" class="col-size">Size</th>
+                    <th scope="col" class="col-date">Date Uploaded</th>
+                    <th scope="col" class="col-actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="file-table-body">
+                  <!-- JS populated rows -->
+                  <tr class="empty-table-row">
+                    <td colspan="4" class="text-center text-muted py-5">
+                      <i class="bi bi-folder-x display-4 d-block mb-3"></i>
+                      No files stored on server. Drag & drop files here to share.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. ACTIVE TRANSFERS WINDOW -->
+      <section class="sys-window" id="window-transfers" style="top: 15%; left: 30%; width: 45%; height: 50%;" aria-labelledby="title-transfers">
+        <header class="window-title-bar" id="title-transfers-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-arrow-down-up me-2"></i>
+            <span class="title-text" id="title-transfers">Active Transfers Queue</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-transfers" title="Minimize Window" aria-label="Minimize Transfers"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-transfers" title="Maximize Window" aria-label="Maximize Transfers"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-transfers" title="Close Window" aria-label="Close Transfers"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body p-3">
+          <!-- Pending Approvals section (shown on Host only) -->
+          <div id="host-pending-section" style="display: none; margin-bottom: 20px;">
+            <div class="transfer-header mb-2">
+              <h5 class="m-0 text-accent" style="color: var(--accent);"><i class="bi bi-shield-check me-2"></i>Pending Approvals</h5>
+            </div>
+            <div class="transfer-list-container mb-3" id="pending-approvals-list" style="border-bottom: var(--window-border); padding-bottom: 15px; display: flex; flex-direction: column; gap: 8px;">
+              <div class="text-muted small">No pending upload requests.</div>
+            </div>
+          </div>
+
+          <div class="transfer-header mb-3">
+            <h5 class="m-0">Active Sessions</h5>
+            <button class="btn btn-secondary btn-sm" id="btn-clear-transfers">Clear Inactive</button>
+          </div>
+          <div class="transfer-list-container" id="transfer-queue-list">
+            <!-- JS populated progress bars -->
+            <div class="empty-state text-center text-muted py-5">
+              <i class="bi bi-activity display-4 d-block mb-3"></i>
+              No active uploads or downloads.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. NETWORK PEERS WINDOW (RADAR SCANNER) -->
+      <section class="sys-window" id="window-radar" style="top: 25%; left: 15%; width: 48%; height: 60%;" aria-labelledby="title-radar">
+        <header class="window-title-bar" id="title-radar-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-radar me-2"></i>
+            <span class="title-text" id="title-radar">Network Peer Discovery Radar</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-radar" title="Minimize Window" aria-label="Minimize Peers"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-radar" title="Maximize Window" aria-label="Maximize Peers"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-radar" title="Close Window" aria-label="Close Peers"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body radar-window-body">
+          
+          <!-- Graphical Radar Circle -->
+          <div class="radar-visual-pane">
+            <div class="radar-circle-outer">
+              <div class="radar-sweep"></div>
+              <div class="radar-ring ring-1"></div>
+              <div class="radar-ring ring-2"></div>
+              <div class="radar-ring ring-3"></div>
+              <!-- Center representing host system -->
+              <div class="radar-node-host" id="radar-host-node">
+                <i class="bi bi-cpu"></i>
+                <span class="node-label">Me</span>
+              </div>
+              
+              <!-- Floating peer markers will be dynamically appended here -->
+              <div class="radar-peers-container" id="radar-peers-container"></div>
+            </div>
+          </div>
+          
+          <!-- Textual Peer List Panel -->
+          <div class="radar-list-pane">
+            <div class="list-pane-header">
+              <h6>Discovered Peers (Same Network)</h6>
+              <span class="status-indicator online-blink" id="radar-connection-indicator">Online</span>
+            </div>
+            <!-- Connection OTP Banner for Host -->
+            <div class="radar-otp-banner" id="radar-otp-banner" style="display: none; background: rgba(0,0,0,0.2); border: var(--window-border); padding: 8px 12px; border-radius: 6px; margin: 10px 0; text-align: center; align-items: center; justify-content: center; gap: 4px;">
+              <span class="text-secondary small" style="font-size: 11px;">Authorization OTP:</span>
+              <strong id="radar-otp-code" class="text-accent" style="color: var(--accent); font-size: 16px; font-family: monospace; letter-spacing: 2px; margin-left: 6px;">------</strong>
+              <button class="btn btn-secondary btn-sm p-1 ms-2" id="btn-refresh-otp" title="Generate New OTP" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 2px 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: var(--accent); outline: none;">
+                <i class="bi bi-arrow-clockwise" style="font-size: 14px;"></i>
+              </button>
+            </div>
+            <div class="peers-list-scroller" id="peers-text-list">
+              <!-- JS Populated list -->
+              <div class="empty-peers text-center text-muted py-4">
+                <i class="bi bi-broadcast display-4 d-block mb-3 animate-pulse"></i>
+                Searching for peers on your network... Connect another device to join the mesh.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- 4. SYSTEM SETTINGS PANEL -->
+      <section class="sys-window" id="window-settings" style="top: 10%; left: 40%; width: 42%; height: 75%;" aria-labelledby="title-settings">
+        <header class="window-title-bar" id="title-settings-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-gear-wide-connected me-2"></i>
+            <span class="title-text" id="title-settings">System Control Panel</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-settings" title="Minimize Window" aria-label="Minimize Settings"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-settings" title="Maximize Window" aria-label="Maximize Settings"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-settings" title="Close Window" aria-label="Close Settings"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body settings-window-body">
+          
+          <!-- Settings Navigation tabs -->
+          <nav class="settings-tabs" aria-label="Settings Categories">
+            <button class="tab-btn active" id="tab-btn-user" data-tab="user"><i class="bi bi-person-circle"></i> Profile</button>
+            <button class="tab-btn" id="tab-btn-themes" data-tab="themes"><i class="bi bi-palette"></i> Themes</button>
+            <button class="tab-btn" id="tab-btn-server" data-tab="server"><i class="bi bi-server"></i> Server Config</button>
+          </nav>
+
+          <!-- Settings Content Sections -->
+          <div class="settings-content">
+            
+            <!-- SECTION 1: PROFILE SETTINGS -->
+            <div class="settings-section active" id="settings-section-user">
+              <h5 class="section-title">My Device Identity</h5>
+              <div class="setting-group">
+                <label for="input-username" class="form-label">Client Display Name</label>
+                <input type="text" id="input-username" class="form-control" value="Guest System">
+              </div>
+              <div class="setting-group">
+                <label class="form-label">Device Icon / Avatar</label>
+                <div class="avatar-grid">
+                  <button class="avatar-selector active" data-avatar="monitor" aria-label="Choose monitor icon"><i class="bi bi-display"></i></button>
+                  <button class="avatar-selector" data-avatar="laptop" aria-label="Choose laptop icon"><i class="bi bi-laptop"></i></button>
+                  <button class="avatar-selector" data-avatar="phone" aria-label="Choose phone icon"><i class="bi bi-phone"></i></button>
+                  <button class="avatar-selector" data-avatar="server" aria-label="Choose server icon"><i class="bi bi-hdd-network"></i></button>
+                  <button class="avatar-selector" data-avatar="terminal" aria-label="Choose terminal icon"><i class="bi bi-terminal"></i></button>
+                </div>
+              </div>
+              <div class="text-end">
+                <button class="btn btn-primary" id="btn-save-profile">Save Profile</button>
+              </div>
+            </div>
+
+            <!-- SECTION 2: THEME SWITCHER -->
+            <div class="settings-section" id="settings-section-themes">
+              <h5 class="section-title">Select OS Aesthetic</h5>
+              <div class="theme-grid">
+                <button class="theme-card active" id="theme-card-aero" data-theme="aero">
+                  <div class="theme-preview-box aero-preview">
+                    <span class="preview-dot dot-1"></span>
+                    <span class="preview-dot dot-2"></span>
+                  </div>
+                  <span class="theme-label">Modern Aero</span>
+                </button>
+                <button class="theme-card" id="theme-card-terminal" data-theme="terminal">
+                  <div class="theme-preview-box terminal-preview">
+                    <span class="preview-cmd">>_</span>
+                  </div>
+                  <span class="theme-label">Retro Terminal</span>
+                </button>
+                <button class="theme-card" id="theme-card-classic" data-theme="classic">
+                  <div class="theme-preview-box classic-preview">
+                    <div class="preview-title">System 9</div>
+                  </div>
+                  <span class="theme-label">Classic macOS</span>
+                </button>
+                <button class="theme-card" id="theme-card-sunset" data-theme="sunset">
+                  <div class="theme-preview-box sunset-preview">
+                    <div class="preview-grid"></div>
+                  </div>
+                  <span class="theme-label">Sunset Vaporwave</span>
+                </button>
+                <button class="theme-card" id="theme-card-cyberpunk" data-theme="cyberpunk">
+                  <div class="theme-preview-box cyberpunk-preview">
+                    <span style="font-size: 9px; font-weight: bold;">CYBER</span>
+                  </div>
+                  <span class="theme-label">Cyberpunk 2077</span>
+                </button>
+                <button class="theme-card" id="theme-card-nord" data-theme="nord">
+                  <div class="theme-preview-box nord-preview">
+                    <span style="font-size: 20px; color: #88c0d0;"><i class="bi bi-snow"></i></span>
+                  </div>
+                  <span class="theme-label">Nordic Frost</span>
+                </button>
+              </div>
+              <div class="theme-status mt-3 text-center">
+                <span class="small text-muted">AeroShare switches layout grids, border bevels, and typography tokens dynamically.</span>
+              </div>
+            </div>
+
+            <!-- SECTION 3: SERVER CONFIGURATION -->
+            <div class="settings-section" id="settings-section-server">
+              <h5 class="section-title">Physical Node Configuration</h5>
+              <div class="setting-group-row">
+                <div class="setting-group col-4">
+                  <label for="input-port" class="form-label">Binding Port</label>
+                  <input type="number" id="input-port" class="form-control" value="5000">
+                </div>
+                <div class="setting-group col-4">
+                  <label class="form-label">Direct WebRTC</label>
+                  <div class="toggle-switch-container">
+                    <input type="checkbox" id="checkbox-webrtc" checked>
+                    <label for="checkbox-webrtc" class="toggle-label"></label>
+                  </div>
+                </div>
+                <div class="setting-group col-4">
+                  <label class="form-label" title="Creates a secure public tunnel to bypass mobile hotspot AP isolation rules">Hotspot Tunnel</label>
+                  <div class="toggle-switch-container">
+                    <input type="checkbox" id="checkbox-tunnel">
+                    <label for="checkbox-tunnel" class="toggle-label"></label>
+                  </div>
+                </div>
+              </div>
+              <div class="setting-group">
+                <label for="input-dir" class="form-label">Shared Directory Path</label>
+                <input type="text" id="input-dir" class="form-control">
+              </div>
+              <div class="setting-group-row">
+                <div class="setting-group col-6">
+                  <label for="input-download-limit" class="form-label">Download Speed Limit</label>
+                  <div class="input-unit">
+                    <input type="number" id="input-download-limit" class="form-control" value="0">
+                    <span class="unit-tag">KB/s</span>
+                  </div>
+                  <span class="field-hint">0 = Unlimited</span>
+                </div>
+                <div class="setting-group col-6">
+                  <label for="input-upload-limit" class="form-label">Upload Speed Limit</label>
+                  <div class="input-unit">
+                    <input type="number" id="input-upload-limit" class="form-control" value="0">
+                    <span class="unit-tag">KB/s</span>
+                  </div>
+                  <span class="field-hint">0 = Unlimited</span>
+                </div>
+              </div>
+              
+              <hr class="divider">
+              
+              <h6 class="text-white mb-2">Network Node Addresses</h6>
+              <div class="network-addresses-list" id="network-addresses-container">
+                <!-- JS populated local IP lists -->
+                <div class="text-muted small">Loading system network interfaces...</div>
+              </div>
+
+              <div class="text-end mt-4">
+                <button class="btn btn-primary" id="btn-save-server-config">Save & Restart Server</button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. HELP & USER GUIDE WINDOW -->
+      <section class="sys-window" id="window-help" style="top: 12%; left: 20%; width: 45%; height: 70%;" aria-labelledby="title-help">
+        <header class="window-title-bar" id="title-help-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-question-circle me-2"></i>
+            <span class="title-text" id="title-help">AeroShare User Guide</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-help" title="Minimize Window" aria-label="Minimize Help"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-help" title="Maximize Window" aria-label="Maximize Help"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-help" title="Close Window" aria-label="Close Help"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body p-4 help-window-body">
+          <div class="help-section">
+            <h4 class="text-accent mb-2" style="color: var(--accent); font-size: 16px; font-weight: 700;">🚀 Welcome to AeroShare OS!</h4>
+            <p class="text-secondary mb-3" style="font-size: 12px; line-height: 1.6;">AeroShare OS is a multi-themed desktop web environment designed for sharing files at lightning speeds. It supports two primary transfer systems.</p>
+            
+            <h5 class="text-white mt-4 mb-2" style="font-size: 13px; font-weight: 600; margin-top: 20px;"><i class="bi bi-folder-symlink me-2 text-accent" style="color: var(--accent);"></i>1. Server-Relay File Storage</h5>
+            <p class="text-secondary mb-2" style="font-size: 12px;">Use this when you want to save a file permanently on the server's drive so others can download it at any time.</p>
+            <ul class="text-secondary mb-3 ms-4" style="font-size: 12px; margin-left: 20px; line-height: 1.6;">
+              <li><strong>Upload:</strong> Simply drag & drop any file directly onto the Desktop canvas, or click <strong>Upload File</strong> in the Explorer window. You will immediately see the file appear in the file manager grid as <code>[Uploading...]</code> with real-time percentage indicators.</li>
+              <li><strong>Resumability:</strong> Large files are uploaded in chunks. If your connection drops, the system automatically recovers the state and resumes from where it left off!</li>
+              <li><strong>Download:</strong> Access the file explorer and click the download icon. It supports partial seek range streams (essential for video pause/seek).</li>
+            </ul>
+
+            <h5 class="text-white mt-4 mb-2" style="font-size: 13px; font-weight: 600; margin-top: 20px;"><i class="bi bi-broadcast me-2 text-success" style="color: var(--success);"></i>2. Direct WebRTC P2P Transfer</h5>
+            <p class="text-secondary mb-2" style="font-size: 12px;">Use this to send files directly between two devices (e.g., your laptop and your phone) without writing anything to the server's disk.</p>
+            <ul class="text-secondary mb-3 ms-4" style="font-size: 12px; margin-left: 20px; line-height: 1.6;">
+              <li><strong>Discovery:</strong> Open the server URL (e.g., <code>http://192.168.1.56:5000</code>) on a second device. Both devices will blink and appear on each other's <strong>Network Peers Radar</strong> screen.</li>
+              <li><strong>Transfer:</strong> Tap/click a peer node on the radar (or double-click), pick your file, and send. The recipient will see an accept invitation panel.</li>
+              <li><strong>Efficiency:</strong> Files stream directly using WebRTC data channels in 16KB binary chunks with low-latency flow control, bypassing server storage entirely.</li>
+            </ul>
+
+            <h5 class="text-white mt-4 mb-2" style="font-size: 13px; font-weight: 600; margin-top: 20px;"><i class="bi bi-palette me-2 text-warning" style="color: var(--accent-secondary);"></i>3. Theme & Connection Tweaks</h5>
+            <p class="text-secondary mb-3" style="font-size: 12px;">Open the <strong>System Control</strong> panel to switch between Aero, Terminal, Classic macOS, and Sunset Vaporwave themes. You can also customize speed throttles, connection ports, and your user nickname.</p>
+
+            <h5 class="text-white mt-4 mb-2" style="font-size: 13px; font-weight: 600; margin-top: 20px;"><i class="bi bi-wifi-off me-2 text-danger" style="color: var(--danger);"></i>4. Troubleshooting Personal Hotspots & Connection Issues</h5>
+            <p class="text-secondary mb-2" style="font-size: 12px;">If you are using a personal hotspot (e.g. sharing from a mobile phone) and devices cannot connect or transfer files, please check the following solutions:</p>
+            <ul class="text-secondary mb-3 ms-4" style="font-size: 12px; margin-left: 20px; line-height: 1.6;">
+              <li><strong>Linux Firewall Blocking:</strong> Linux firewalls often block incoming connections on port 5000. Open a terminal on the host laptop and run: <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #ff5f5f;">sudo ufw allow 5000/tcp</code>.</li>
+              <li><strong>Android/iOS Hotspot Isolation:</strong> By default, a phone hosting a hotspot cannot establish connections to its own client devices. To resolve this:
+                <ul class="ms-3" style="margin-left: 15px; list-style-type: circle;">
+                  <li>Turn on the Wi-Fi Hotspot on the <em>laptop</em> instead, and connect the phone to the laptop's network.</li>
+                  <li>Or use <strong>USB Tethering</strong> (connect phone via USB and enable USB tethering).</li>
+                  <li>Or connect both the laptop and phone to a third device's hotspot or local Wi-Fi router.</li>
+                </ul>
+              </li>
+              <li><strong>WebRTC Direct Transfer Blocked:</strong> Mobile hotspots often block direct peer-to-peer UDP streams (AP isolation). If direct P2P transfer hangs at "Connecting...", don't worry! Simply upload the file to <strong>My Shared Files (Server-Relay)</strong>. Connected devices can download it directly from the explorer list via HTTP.</li>
+            </ul>
+          </div>
+        </div>
+      <!-- 6. CONNECTION SHARE HUB WINDOW (QR CODE MODAL) -->
+      <section class="sys-window" id="window-share" style="top: 12%; left: 32%; width: 38%; height: 64%;" aria-labelledby="title-share">
+        <header class="window-title-bar" id="title-share-drag">
+          <div class="title-bar-info">
+            <i class="bi bi-qr-code-scan me-2"></i>
+            <span class="title-text" id="title-share">AeroShare Hub</span>
+          </div>
+          <div class="title-bar-actions">
+            <button class="title-btn btn-minimize" id="btn-minimize-share" title="Minimize Window" aria-label="Minimize Share Hub"><i class="bi bi-dash"></i></button>
+            <button class="title-btn btn-maximize" id="btn-maximize-share" title="Maximize Window" aria-label="Maximize Share Hub"><i class="bi bi-app"></i></button>
+            <button class="title-btn btn-close" id="btn-close-share" title="Close Window" aria-label="Close Share Hub"><i class="bi bi-x-lg"></i></button>
+          </div>
+        </header>
+        <div class="window-body p-3 share-window-body" style="display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: calc(100% - 36px); box-sizing: border-box;">
+          <div class="text-center">
+            <h6 class="mb-1 text-white" style="font-size: 14px; font-weight: 600;">Scan to Connect Device</h6>
+            <p class="text-secondary small mb-3" style="font-size: 11px;">Connect your phone or client computer to the same Wi-Fi, then scan the QR code to open the share interface.</p>
+          </div>
+          
+          <div class="share-qr-pane" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,0.15); border: var(--window-border); padding: 15px; border-radius: 8px;">
+            <div id="share-qr-container" style="background: white; padding: 10px; border-radius: 8px; width: 170px; height: 170px; display: flex; align-items: center; justify-content: center; box-sizing: border-box;">
+              <canvas id="share-qr-canvas" style="display: block; width: 150px; height: 150px;"></canvas>
+            </div>
+            <strong id="share-qr-label" class="text-accent small mt-2" style="color: var(--accent); font-size: 11px;">Local LAN Connection</strong>
+          </div>
+
+          <div class="share-links-list" style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="form-label mb-1" style="font-size: 11px;">Select Network Interface Connection</label>
+            <div id="share-addresses-list" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Populated dynamically via JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Start Menu Dropup Panel -->
+    <div class="start-menu-panel" id="start-menu-panel" style="display: none;">
+      <div class="start-menu-header">
+        <i class="bi bi-cpu-fill text-accent" style="font-size: 24px; color: var(--accent);"></i>
+        <div class="header-info" style="display: flex; flex-direction: column;">
+          <span class="system-name" style="font-size: 13px; font-weight: 700; color: #fff;">AeroShare OS</span>
+          <span class="system-status" id="start-menu-subtitle" style="font-size: 10px; color: var(--text-secondary);">Mesh Network Sharing</span>
+        </div>
+      </div>
+      <div class="start-menu-body" style="padding: 10px; display: flex; flex-direction: column; gap: 4px;">
+        <button class="start-menu-item" id="start-item-share" title="Share Connection via QR Code">
+          <i class="bi bi-qr-code-scan"></i>
+          <span>Share Connection (QR Code)</span>
+        </button>
+        <button class="start-menu-item" id="start-item-files" title="Open Shared Files Explorer">
+          <i class="bi bi-folder2-open"></i>
+          <span>My Shared Files</span>
+        </button>
+        <button class="start-menu-item" id="start-item-radar" title="Open Peers Discovery Radar">
+          <i class="bi bi-radar"></i>
+          <span>Peers Discovery Radar</span>
+        </button>
+        <button class="start-menu-item" id="start-item-settings" title="Open System Control Settings">
+          <i class="bi bi-gear-wide-connected"></i>
+          <span>System Settings</span>
+        </button>
+        <button class="start-menu-item" id="start-item-help" title="Open User Guide Manual">
+          <i class="bi bi-question-circle"></i>
+          <span>AeroShare User Guide</span>
+        </button>
+      </div>
+      <div class="start-menu-footer" style="padding: 12px; display: flex; justify-content: space-between; align-items: center; border-top: var(--window-border); background: rgba(0,0,0,0.2);">
+        <span class="node-identity" id="start-menu-device-name" style="font-size: 11px; font-family: monospace; color: var(--text-secondary); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">AeroShare Node</span>
+        <button class="btn-shutdown" id="start-btn-restart" title="Restart Service Node" style="background: rgba(255,255,255,0.06); border: var(--window-border); color: var(--text-primary); border-radius: 4px; padding: 4px 10px; font-size: 10px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; outline: none;">
+          <i class="bi bi-arrow-clockwise"></i> Restart Server
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bottom Taskbar / Desktop Dock -->
+  <footer class="taskbar" id="taskbar" role="contentinfo" aria-label="System Dock">
+    
+    <!-- Start Button / Quick Status -->
+    <button class="taskbar-btn start-menu-btn" id="btn-start" aria-haspopup="true" aria-expanded="false" title="System Dashboard">
+      <i class="bi bi-cpu-fill"></i>
+      <span class="start-label">AeroShare</span>
+    </button>
+    
+    <div class="taskbar-divider"></div>
+
+    <!-- Active Window Tabs/Pins (Bounces or blinks on notification/transfers) -->
+    <div class="taskbar-tabs-scroller" id="taskbar-tabs-scroller">
+      <button class="taskbar-tab" id="tab-files" data-window="files">
+        <i class="bi bi-folder2-open"></i>
+        <span class="tab-label">Files</span>
+      </button>
+      <button class="taskbar-tab" id="tab-transfers" data-window="transfers">
+        <i class="bi bi-arrow-down-up"></i>
+        <span class="tab-label">Transfers</span>
+      </button>
+      <button class="taskbar-tab" id="tab-radar" data-window="radar">
+        <i class="bi bi-radar"></i>
+        <span class="tab-label">Peers</span>
+      </button>
+      <button class="taskbar-tab" id="tab-settings" data-window="settings">
+        <i class="bi bi-gear-wide-connected"></i>
+        <span class="tab-label">Settings</span>
+      </button>
+      <button class="taskbar-tab" id="tab-share" data-window="share" style="display: none;">
+        <i class="bi bi-qr-code-scan"></i>
+        <span class="tab-label">Share</span>
+      </button>
+      <button class="taskbar-tab" id="tab-help" data-window="help">
+        <i class="bi bi-question-circle"></i>
+        <span class="tab-label">Help</span>
+      </button>
+    </div>
+
+    <!-- System Tray Info -->
+    <div class="system-tray">
+      <div class="tray-network-status" id="tray-network-status" title="Websocket mesh discovery status">
+        <i class="bi bi-wifi" id="network-status-icon"></i>
+        <span class="tray-label d-none-mobile" id="network-status-text">Disconnected</span>
+      </div>
+      <div class="taskbar-divider"></div>
+      <div class="tray-clock" id="system-clock" title="System Local Time">
+        12:00 PM
+      </div>
+    </div>
+
+  </footer>
+
+  <!-- Prompt modal for accepting P2P incoming transfers -->
+  <div class="prompt-overlay" id="p2p-prompt-overlay" style="display: none;">
+    <div class="prompt-dialog">
+      <div class="prompt-header">
+        <i class="bi bi-box-arrow-in-down"></i>
+        <h5>Incoming Direct WebRTC Connection</h5>
+      </div>
+      <div class="prompt-body">
+        <p>Peer <strong id="prompt-peer-name">Anika</strong> wants to send you a file directly over WebRTC:</p>
+        <div class="prompt-file-card">
+          <i class="bi bi-file-earmark-arrow-up"></i>
+          <div class="prompt-file-info">
+            <h6 id="prompt-file-name">holiday_video.mp4</h6>
+            <span id="prompt-file-size">45 MB</span>
+          </div>
+        </div>
+        <p class="text-danger small mt-2">Notice: This transfer is direct between devices. It is safe and does not register storage on the relay server.</p>
+      </div>
+      <div class="prompt-footer">
+        <button class="btn btn-secondary" id="btn-decline-transfer">Decline</button>
+        <button class="btn btn-primary" id="btn-accept-transfer">Accept Transfer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Alert/Toast Notifications Panel -->
+  <div class="system-toast-container" id="toast-container"></div>
+
+  <!-- Offline QR Code Generator Library -->
+  <script src="qrious.min.js"></script>
+  <!-- Core Javascript File -->
+  <script src="app.js?v=2.4"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "deviceName": "atul-Inspiron-15-3520",
+  "sharedDirectory": "/home/atul/Desktop/updated_ui/shared_files",
+  "theme": "modern-computer",
+  "port": 5000,
+  "downloadSpeedLimit": 0,
+  "uploadSpeedLimit": 0,
+  "allowWebRTC": true,
+  "enableTunnel": true,
+  "cdnBaseUrl": "",
+  "username": "Host System",
+  "avatar": "monitor"
+}

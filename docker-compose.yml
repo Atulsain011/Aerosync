@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  aerosync:
+    build: .
+    container_name: aerosync-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount shared directory on host to persist uploaded files
+      - ./shared_files:/app/shared_files
+      # Persist configuration file
+      - ./settings.json:/app/settings.json
+    environment:
+      - NODE_ENV=production
+      - PORT=5000

@@ -1,0 +1,2333 @@
+/* ==========================================================================
+   AeroShare OS Core Stylesheet & Design System
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Theme Variable Definitions
+   -------------------------------------------------------------------------- */
+
+/* Default / Theme 1: Modern Aero (Sleek Glassmorphic Purple/Blue) */
+:root, body.theme-aero {
+  --bg-wallpaper: linear-gradient(135deg, #090616 0%, #100a26 25%, #220e4b 60%, #060410 100%);
+  --desktop-overlay: radial-gradient(circle at 85% 15%, rgba(168, 85, 247, 0.22) 0%, transparent 45%),
+                     radial-gradient(circle at 15% 85%, rgba(6, 182, 212, 0.18) 0%, transparent 50%);
+  --window-bg: rgba(14, 10, 31, 0.52);
+  --window-border: 1px solid rgba(255, 255, 255, 0.12);
+  --window-shadow: 0 24px 60px rgba(0, 0, 0, 0.75), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+  --window-radius: 16px;
+  
+  --titlebar-bg: rgba(18, 12, 38, 0.7);
+  --titlebar-border: 1px solid rgba(255, 255, 255, 0.08);
+  
+  --text-primary: #ffffff;
+  --text-secondary: #c7c2e6;
+  --text-muted: #8278ab;
+  
+  --accent: #a855f7;
+  --accent-secondary: #06b6d4;
+  --accent-glow: rgba(168, 85, 247, 0.5);
+  --success: #10b981;
+  --danger: #f43f5e;
+  
+  --btn-primary-bg: linear-gradient(135deg, #a855f7 0%, #6366f1 100%);
+  --btn-primary-hover: linear-gradient(135deg, #b566ff 0%, #4f46e5 100%);
+  --btn-secondary-bg: rgba(255, 255, 255, 0.06);
+  --btn-secondary-hover: rgba(255, 255, 255, 0.14);
+  
+  --input-bg: rgba(0, 0, 0, 0.45);
+  --input-border: 1px solid rgba(255, 255, 255, 0.12);
+  --input-focus: 1px solid #06b6d4;
+  
+  --taskbar-bg: rgba(8, 5, 18, 0.65);
+  --taskbar-border: 1px solid rgba(255, 255, 255, 0.1);
+  --taskbar-tab-active: rgba(255, 255, 255, 0.1);
+  
+  --font-family: 'Inter', sans-serif;
+  --backdrop-blur: blur(35px);
+  --window-transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
+  --bevel-style: none;
+}
+
+/* Theme 2: Retro Terminal (Green Matrix Monospace) */
+body.theme-terminal {
+  --bg-wallpaper: #020202;
+  --desktop-overlay: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+  --window-bg: #000000;
+  --window-border: 1.5px solid #00ff00;
+  --window-shadow: 0 0 20px rgba(0, 255, 0, 0.25);
+  --window-radius: 0px;
+  
+  --titlebar-bg: #050505;
+  --titlebar-border: 1px solid #00ff00;
+  
+  --text-primary: #00ff00;
+  --text-secondary: #00cc00;
+  --text-muted: #007700;
+  
+  --accent: #00ff00;
+  --accent-secondary: #00aa00;
+  --accent-glow: rgba(0, 255, 0, 0.5);
+  --success: #00ff00;
+  --danger: #ff0000;
+  
+  --btn-primary-bg: transparent;
+  --btn-primary-hover: #00ff00;
+  --btn-secondary-bg: transparent;
+  --btn-secondary-hover: rgba(0, 255, 0, 0.15);
+  
+  --input-bg: #000000;
+  --input-border: 1px solid #00aa00;
+  --input-focus: 1.5px solid #00ff00;
+  
+  --taskbar-bg: #000000;
+  --taskbar-border: 1px solid #00ff00;
+  --taskbar-tab-active: rgba(0, 255, 0, 0.15);
+  
+  --font-family: 'Fira Code', 'Courier New', monospace;
+  --backdrop-blur: none;
+  --window-transition: none; /* Instant snapped window response */
+  --bevel-style: none;
+}
+
+/* Theme 3: Classic macOS (Platinum/System 9 Gray) */
+body.theme-classic {
+  --bg-wallpaper: #008080; /* Classic Teal background */
+  --desktop-overlay: none;
+  --window-bg: #d6d6d6;
+  --window-border: 1px solid #000000;
+  --window-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+  --window-radius: 0px;
+  
+  --titlebar-bg: #000080; /* Navy blue title bar for active active state */
+  --titlebar-border: 1px solid #000000;
+  
+  --text-primary: #000000;
+  --text-secondary: #333333;
+  --text-muted: #666666;
+  
+  --accent: #000080;
+  --accent-secondary: #808080;
+  --accent-glow: none;
+  --success: #008000;
+  --danger: #800000;
+  
+  --btn-primary-bg: #d6d6d6;
+  --btn-primary-hover: #eaeaea;
+  --btn-secondary-bg: #d6d6d6;
+  --btn-secondary-hover: #eaeaea;
+  
+  --input-bg: #ffffff;
+  --input-border: 1px solid #808080;
+  --input-focus: 2px solid #000080;
+  
+  --taskbar-bg: #d6d6d6;
+  --taskbar-border: 1px solid #000000;
+  --taskbar-tab-active: #b8b8b8;
+  
+  --font-family: 'Arial', sans-serif;
+  --backdrop-blur: none;
+  --window-transition: none;
+  --bevel-style: outset;
+}
+
+/* Theme 4: Sunset Vaporwave (Pastel Pink/Neon Blue Retro) */
+body.theme-sunset {
+  --bg-wallpaper: linear-gradient(180deg, #ff71ce 0%, #b967ff 45%, #01cdfe 100%);
+  --desktop-overlay: radial-gradient(circle at center, transparent 30%, rgba(5, 255, 161, 0.1) 100%);
+  --window-bg: rgba(5, 10, 48, 0.75);
+  --window-border: 2px solid #ff71ce;
+  --window-shadow: 6px 6px 0px #01cdfe;
+  --window-radius: 8px;
+  
+  --titlebar-bg: rgba(185, 103, 255, 0.85);
+  --titlebar-border: 1px solid #ff71ce;
+  
+  --text-primary: #ffffff;
+  --text-secondary: #fffb96;
+  --text-muted: #b967ff;
+  
+  --accent: #ff71ce;
+  --accent-secondary: #01cdfe;
+  --accent-glow: rgba(255, 113, 206, 0.6);
+  --success: #05ffa1;
+  --danger: #ff5c5c;
+  
+  --btn-primary-bg: linear-gradient(90deg, #ff71ce, #b967ff);
+  --btn-primary-hover: linear-gradient(90deg, #ff94dd, #c685ff);
+  --btn-secondary-bg: rgba(1, 205, 254, 0.2);
+  --btn-secondary-hover: rgba(1, 205, 254, 0.4);
+  
+  --input-bg: rgba(5, 10, 48, 0.6);
+  --input-border: 1px solid #01cdfe;
+  --input-focus: 1.5px solid #ff71ce;
+  
+  --taskbar-bg: rgba(5, 10, 48, 0.85);
+  --taskbar-border: 2px solid #ff71ce;
+  --taskbar-tab-active: rgba(255, 113, 206, 0.25);
+  
+  --font-family: 'Outfit', 'Segoe UI', sans-serif;
+  --backdrop-blur: blur(15px);
+  --window-transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.15s ease;
+  --bevel-style: none;
+}
+
+/* Theme 5: Cyberpunk 2077 (Charcoal & Neon Yellow) */
+body.theme-cyberpunk {
+  --bg-wallpaper: #0b0b0f;
+  --desktop-overlay: radial-gradient(circle at 75% 25%, rgba(252, 238, 10, 0.1) 0%, transparent 60%);
+  --window-bg: rgba(22, 22, 29, 0.95);
+  --window-border: 2px solid #fcee0a;
+  --window-shadow: 6px 6px 0px #00f0ff;
+  --window-radius: 0px;
+  
+  --titlebar-bg: #1e1f26;
+  --titlebar-border: 1px solid #fcee0a;
+  
+  --text-primary: #fcee0a;
+  --text-secondary: #00f0ff;
+  --text-muted: #576574;
+  
+  --accent: #fcee0a;
+  --accent-secondary: #00f0ff;
+  --accent-glow: rgba(252, 238, 10, 0.3);
+  --success: #2ecc71;
+  --danger: #e74c3c;
+  
+  --btn-primary-bg: #fcee0a;
+  --btn-primary-hover: #00f0ff;
+  --btn-secondary-bg: rgba(0, 240, 255, 0.05);
+  --btn-secondary-hover: rgba(0, 240, 255, 0.15);
+  
+  --input-bg: #16161d;
+  --input-border: 1px solid #00f0ff;
+  --input-focus: 2px solid #fcee0a;
+  
+  --taskbar-bg: #1e1f26;
+  --taskbar-border: 1px solid #fcee0a;
+  --taskbar-tab-active: rgba(252, 238, 10, 0.2);
+  
+  --font-family: 'Fira Code', monospace;
+  --backdrop-blur: none;
+  --window-transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
+  --bevel-style: none;
+}
+
+/* Adjust Cyberpunk primary button texts to be dark on neon yellow */
+body.theme-cyberpunk .btn-primary {
+  color: #000000 !important;
+  font-weight: bold;
+}
+
+/* Theme 6: Nordic Frost (Slate & Frosted Ice Blue) */
+body.theme-nord {
+  --bg-wallpaper: linear-gradient(135deg, #2e3440 0%, #3b4252 50%, #434c5e 100%);
+  --desktop-overlay: radial-gradient(circle at 20% 80%, rgba(136, 192, 208, 0.15) 0%, transparent 65%);
+  --window-bg: rgba(46, 52, 64, 0.65);
+  --window-border: 1px solid rgba(216, 222, 233, 0.15);
+  --window-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --window-radius: 16px;
+  
+  --titlebar-bg: rgba(59, 66, 82, 0.8);
+  --titlebar-border: 1px solid rgba(216, 222, 233, 0.08);
+  
+  --text-primary: #eceff4;
+  --text-secondary: #d8dee9;
+  --text-muted: #4c566a;
+  
+  --accent: #88c0d0;
+  --accent-secondary: #8fbcbb;
+  --accent-glow: rgba(136, 192, 208, 0.35);
+  --success: #a3be8c;
+  --danger: #bf616a;
+  
+  --btn-primary-bg: linear-gradient(135deg, #88c0d0 0%, #5e81ac 100%);
+  --btn-primary-hover: linear-gradient(135deg, #8fbcbb 0%, #81a1c1 100%);
+  --btn-secondary-bg: rgba(216, 222, 233, 0.05);
+  --btn-secondary-hover: rgba(216, 222, 233, 0.12);
+  
+  --input-bg: rgba(46, 52, 64, 0.5);
+  --input-border: 1px solid rgba(216, 222, 233, 0.1);
+  --input-focus: 1px solid #88c0d0;
+  
+  --taskbar-bg: rgba(46, 52, 64, 0.8);
+  --taskbar-border: 1px solid rgba(216, 222, 233, 0.1);
+  --taskbar-tab-active: rgba(216, 222, 233, 0.1);
+  
+  --font-family: 'Outfit', sans-serif;
+  --backdrop-blur: blur(25px);
+  --window-transition: transform 0.28s cubic-bezier(0.19, 1, 0.22, 1), opacity 0.22s ease;
+  --bevel-style: none;
+}
+
+/* --------------------------------------------------------------------------
+   2. Reset & Layout Systems
+   -------------------------------------------------------------------------- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  background: var(--bg-wallpaper);
+  user-select: none;
+}
+
+body::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--desktop-overlay);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Visually Hidden Title for SEO compliance */
+.system-hidden-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* Desktop Workspace container */
+.desktop-area {
+  position: relative;
+  width: 100%;
+  height: calc(100% - 48px); /* Account for taskbar height */
+  z-index: 2;
+  overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   3. Desktop Icons & Grid
+   -------------------------------------------------------------------------- */
+.desktop-grid {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: grid;
+  grid-template-rows: repeat(auto-fill, 90px);
+  grid-gap: 20px;
+  width: 120px;
+  height: auto;
+  z-index: 1;
+}
+
+.desktop-shortcut {
+  background: transparent;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 90px;
+  cursor: pointer;
+  outline: none;
+  transition: transform 0.15s ease;
+}
+
+.desktop-shortcut:hover {
+  transform: scale(1.05);
+}
+
+.desktop-shortcut:active {
+  transform: scale(0.95);
+}
+
+.shortcut-icon {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: var(--accent);
+  transition: color 0.2s ease;
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+/* Apply neon filter to icon glows */
+body.theme-aero .shortcut-icon {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+body.theme-terminal .shortcut-icon {
+  color: #00ff00;
+  border: 1px solid transparent;
+}
+body.theme-terminal .desktop-shortcut:focus .shortcut-icon {
+  border: 1px dashed #00ff00;
+}
+
+body.theme-classic .shortcut-icon {
+  font-size: 36px;
+  color: #000080;
+}
+
+body.theme-sunset .shortcut-icon {
+  color: #ff71ce;
+  background: rgba(1, 205, 254, 0.1);
+  border: 1px solid #01cdfe;
+}
+
+.shortcut-label {
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--text-primary);
+  text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+  max-width: 95px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.theme-classic .shortcut-label {
+  color: #ffffff; /* Classic Win95 text over teal desktop */
+  text-shadow: 1px 1px 0px #000000;
+}
+
+body.theme-terminal .shortcut-label {
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.8);
+}
+
+/* Badge count indicator on shortcuts */
+.shortcut-icon .badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 10px;
+  border: 1.5px solid var(--window-bg);
+}
+
+body.theme-terminal .shortcut-icon .badge {
+  background: #ff0000;
+  border: 1px solid #00ff00;
+  color: #000000;
+}
+
+/* --------------------------------------------------------------------------
+   4. Draggable Window Elements
+   -------------------------------------------------------------------------- */
+.window-space {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none; /* Let clicks pass through empty space to background shortcuts */
+}
+
+.sys-window {
+  position: absolute;
+  background: var(--window-bg);
+  border: var(--window-border);
+  box-shadow: var(--window-shadow);
+  border-radius: var(--window-radius);
+  backdrop-filter: var(--backdrop-blur);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.92);
+  pointer-events: none;
+  z-index: 5;
+  transition: var(--window-transition), visibility 0.2s;
+}
+
+/* Outset border for Classic Windows 95 Bevel */
+body.theme-classic .sys-window {
+  border-top: 2px solid #ffffff;
+  border-left: 2px solid #ffffff;
+  border-right: 2px solid #555555;
+  border-bottom: 2px solid #555555;
+}
+
+/* Focus and Dragging Utility States */
+.sys-window.open {
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.sys-window.focus-active {
+  z-index: 10;
+}
+
+body.theme-aero .sys-window.focus-active {
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 15px rgba(168, 85, 247, 0.15);
+}
+
+body.theme-sunset .sys-window.focus-active {
+  box-shadow: 0 0 20px rgba(255, 113, 206, 0.5);
+  border-color: #01cdfe;
+}
+
+body.theme-cyberpunk .sys-window.focus-active {
+  box-shadow: 0 0 25px rgba(252, 238, 10, 0.4);
+  border-color: #00f0ff;
+}
+
+body.theme-nord .sys-window.focus-active {
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 20px rgba(136, 192, 208, 0.25);
+  border-color: #88c0d0;
+}
+
+.sys-window.dragging {
+  transition: none !important; /* Extremely crucial for drag performance */
+}
+
+/* Title Bar */
+.window-title-bar {
+  height: 38px;
+  background: var(--titlebar-bg);
+  border-bottom: var(--titlebar-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  cursor: move;
+  user-select: none;
+}
+
+body.theme-classic .window-title-bar {
+  height: 24px;
+  background: #808080; /* Gray titlebar for inactive */
+  color: #c0c0c0;
+  padding: 2px;
+}
+
+body.theme-classic .sys-window.focus-active .window-title-bar {
+  background: #000080; /* Navy titlebar for active focus */
+  color: #ffffff;
+}
+
+.title-bar-info {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.theme-classic .title-bar-info {
+  font-size: 11px;
+}
+
+.title-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+body.theme-classic .title-bar-actions {
+  gap: 2px;
+}
+
+.title-btn {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.title-btn:hover {
+  color: rgba(0,0,0,0.6);
+}
+
+/* Title Actions Styling: Aero / macOS style circles */
+.btn-close { background-color: #ef4444; }
+.btn-minimize { background-color: #f59e0b; }
+.btn-maximize { background-color: #10b981; }
+
+/* Retro Terminal Window buttons: glowing brackets */
+body.theme-terminal .title-btn {
+  background: transparent;
+  width: auto;
+  height: auto;
+  border-radius: 0px;
+  color: #00ff00;
+  font-size: 11px;
+  padding: 0 4px;
+}
+body.theme-terminal .title-btn:hover {
+  background: #00ff00;
+  color: #000000;
+}
+body.theme-terminal .btn-close::after { content: "[X]"; }
+body.theme-terminal .btn-minimize::after { content: "[-]"; }
+body.theme-terminal .btn-maximize::after { content: "[+]"; }
+body.theme-terminal .title-btn i { display: none; }
+
+/* Classic Win95 Bevel block actions */
+body.theme-classic .title-btn {
+  background: #d6d6d6;
+  border-top: 1px solid #fff;
+  border-left: 1px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  color: #000;
+  font-size: 9px;
+  padding: 0;
+}
+body.theme-classic .title-btn:active {
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+}
+body.theme-classic .btn-close i::before { content: "×"; font-size: 12px; font-weight: bold; }
+body.theme-classic .btn-minimize i::before { content: "-"; font-weight: bold; }
+body.theme-classic .btn-maximize i::before { content: "■"; }
+
+/* Sunset Vaporwave buttons: neon rectangles */
+body.theme-sunset .title-btn {
+  border-radius: 2px;
+  border: 1px solid #ff71ce;
+  background: transparent;
+  color: #01cdfe;
+}
+body.theme-sunset .title-btn:hover {
+  background: #ff71ce;
+  color: #ffffff;
+}
+
+/* Window Body Area */
+.window-body {
+  flex-grow: 1;
+  width: 100%;
+  height: calc(100% - 38px);
+  overflow-y: auto;
+  position: relative;
+}
+
+body.theme-classic .window-body {
+  background: #c0c0c0;
+  border-top: 1px solid #808080;
+  border-left: 1px solid #808080;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+  height: calc(100% - 24px);
+}
+
+/* Maximize utility class */
+.sys-window.maximized {
+  width: 100% !important;
+  height: calc(100% - 48px) !important;
+  top: 0 !important;
+  left: 0 !important;
+  border-radius: 0px !important;
+}
+
+/* --------------------------------------------------------------------------
+   5. File Explorer Window Components
+   -------------------------------------------------------------------------- */
+.explorer-body {
+  display: flex;
+  overflow: hidden !important;
+}
+
+.help-window-body {
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.uploading-row-flash {
+  background: rgba(168, 85, 247, 0.08) !important;
+  animation: uploading-row-pulse 2s infinite ease-in-out;
+}
+
+@keyframes uploading-row-pulse {
+  0%, 100% { background: rgba(168, 85, 247, 0.04); }
+  50% { background: rgba(168, 85, 247, 0.15); }
+}
+
+/* Sidebar */
+.explorer-sidebar {
+  width: 200px;
+  background: rgba(0, 0, 0, 0.15);
+  border-right: var(--window-border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+body.theme-classic .explorer-sidebar {
+  width: 160px;
+  background: #d6d6d6;
+  border-right: 1.5px solid #808080;
+}
+
+.sidebar-header {
+  border-bottom: var(--window-border);
+  padding-bottom: 8px;
+}
+.sidebar-header h6 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.sidebar-header small {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.storage-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: var(--window-border);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+}
+
+body.theme-classic .storage-card {
+  background: #c0c0c0;
+  border-top: 1.5px solid #808080;
+  border-left: 1.5px solid #808080;
+  border-right: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  border-radius: 0;
+}
+
+.divider {
+  border: 0;
+  border-top: var(--window-border);
+  margin: 10px 0;
+}
+
+.sidebar-note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  display: flex;
+  align-items: flex-start;
+}
+
+/* Table Area */
+.explorer-main {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.explorer-toolbar {
+  height: 48px;
+  background: rgba(0,0,0,0.1);
+  border-bottom: var(--window-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  gap: 16px;
+}
+
+body.theme-classic .explorer-toolbar {
+  background: #c0c0c0;
+  border-bottom: 1.5px solid #808080;
+  height: 36px;
+  padding: 0 8px;
+}
+
+.search-box {
+  position: relative;
+  flex-grow: 1;
+  max-width: 300px;
+}
+.search-box i {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+body.theme-classic .search-box i {
+  top: 5px;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 6px 12px 6px 30px;
+  font-size: 12px;
+  background: var(--input-bg);
+  border: var(--input-border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+body.theme-classic .search-box input {
+  border-top: 1.5px solid #808080;
+  border-left: 1.5px solid #808080;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+  border-radius: 0;
+  padding: 4px 8px 4px 24px;
+}
+
+.file-table-container {
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.file-table th {
+  position: sticky;
+  top: 0;
+  background: var(--titlebar-bg);
+  border-bottom: var(--window-border);
+  padding: 10px 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  z-index: 2;
+}
+
+body.theme-classic .file-table th {
+  background: #d6d6d6;
+  border-right: 1px solid #808080;
+  border-bottom: 1.5px solid #808080;
+  color: #000;
+  padding: 4px 8px;
+}
+
+.file-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+body.theme-classic .file-table td {
+  border-bottom: 1px solid #808080;
+  padding: 6px 8px;
+}
+
+.file-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+body.theme-classic .file-table tbody tr:hover {
+  background: #b8b8b8;
+}
+
+/* Column sizes */
+.col-name { width: 50%; }
+.col-size { width: 15%; }
+.col-date { width: 20%; }
+.col-actions { width: 15%; text-align: center; }
+
+/* Drag and Drop Hover overlay */
+.drag-drop-overlay {
+  position: absolute;
+  top: 48px; left: 0; right: 0; bottom: 0;
+  background: rgba(168, 85, 247, 0.15);
+  backdrop-filter: blur(4px);
+  border: 3px dashed var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.drag-drop-overlay.drag-hover {
+  opacity: 1;
+}
+
+.drop-prompt {
+  text-align: center;
+  color: var(--text-primary);
+}
+.drop-prompt i {
+  font-size: 48px;
+  color: var(--accent);
+  animation: bounce 1.5s infinite;
+}
+
+/* --------------------------------------------------------------------------
+   6. Active Transfers Queue
+   -------------------------------------------------------------------------- */
+.transfer-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 100%;
+}
+
+.transfer-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--window-border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.theme-classic .transfer-item {
+  background: #d6d6d6;
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+}
+
+.transfer-details-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.transfer-meta-text {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.progress-bar-outer {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+body.theme-classic .progress-bar-outer {
+  background: #ffffff;
+  border-top: 1px solid #808080;
+  border-left: 1px solid #808080;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+  border-radius: 0;
+  height: 12px;
+}
+
+.progress-bar-inner {
+  height: 100%;
+  width: 0%;
+  background: var(--btn-primary-bg);
+  transition: width 0.1s linear;
+}
+
+body.theme-classic .progress-bar-inner {
+  background: #000080;
+}
+
+body.theme-terminal .progress-bar-inner {
+  background: #00ff00;
+}
+
+/* --------------------------------------------------------------------------
+   7. Network Peers Discovery Window (RADAR SCREEN)
+   -------------------------------------------------------------------------- */
+.radar-window-body {
+  display: flex;
+  overflow: hidden;
+}
+
+/* Circular radar screen graphic */
+.radar-visual-pane {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+body.theme-classic .radar-visual-pane {
+  background: #969696;
+  border-right: 1.5px solid #808080;
+}
+
+.radar-circle-outer {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.theme-terminal .radar-circle-outer {
+  border: 1.5px solid #005500;
+}
+
+/* Sweep rotation wedge line */
+.radar-sweep {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent-glow) 0%, transparent 60%);
+  animation: sweep-spin 4s linear infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.radar-ring {
+  position: absolute;
+  border: 1px dashed var(--text-muted);
+  border-radius: 50%;
+}
+.ring-1 { width: 180px; height: 180px; }
+.ring-2 { width: 100px; height: 100px; }
+.ring-3 { width: 40px; height: 40px; }
+
+body.theme-terminal .radar-ring {
+  border: 1px dashed #003300;
+}
+
+/* Radar visual styles for new themes */
+body.theme-cyberpunk .radar-circle-outer { border: 1.5px solid rgba(0, 240, 255, 0.3); }
+body.theme-cyberpunk .radar-ring { border: 1px dashed rgba(252, 238, 10, 0.2); }
+body.theme-cyberpunk .radar-sweep { background: conic-gradient(from 0deg, rgba(0, 240, 255, 0.4) 0%, transparent 60%); }
+
+body.theme-nord .radar-circle-outer { border: 1px solid rgba(136, 192, 208, 0.2); }
+body.theme-nord .radar-ring { border: 1px dashed rgba(216, 222, 233, 0.1); }
+body.theme-nord .radar-sweep { background: conic-gradient(from 0deg, rgba(136, 192, 208, 0.35) 0%, transparent 60%); }
+
+/* Center node */
+.radar-node-host {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.radar-node-host i {
+  font-size: 20px;
+  color: var(--accent-secondary);
+  text-shadow: 0 0 10px var(--accent-glow);
+}
+.radar-node-host .node-label {
+  font-size: 9px;
+  font-weight: bold;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Peer floating coordinates */
+.radar-peers-container {
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  z-index: 3;
+}
+
+.radar-peer-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  animation: peer-ping 2s infinite ease-out;
+  transition: transform 0.2s ease;
+}
+
+.radar-peer-node:hover {
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.radar-peer-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 12px var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 8px;
+}
+
+.radar-peer-label {
+  font-size: 9px;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid var(--window-border);
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+body.theme-classic .radar-peer-label {
+  background: #c0c0c0;
+  color: #000;
+  border: 1px solid #000;
+  border-radius: 0;
+}
+
+/* Text List pane */
+.radar-list-pane {
+  width: 220px;
+  border-left: var(--window-border);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+body.theme-classic .radar-list-pane {
+  width: 180px;
+  background: #d6d6d6;
+}
+
+.list-pane-header {
+  border-bottom: var(--window-border);
+  padding-bottom: 8px;
+}
+.list-pane-header h6 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.peers-list-scroller {
+  flex-grow: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.peer-list-card {
+  background: rgba(255,255,255,0.02);
+  border: var(--window-border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.peer-list-card:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+body.theme-classic .peer-list-card {
+  background: #c0c0c0;
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  color: #000;
+}
+
+/* --------------------------------------------------------------------------
+   8. System Settings Panels & Config Tab Systems
+   -------------------------------------------------------------------------- */
+.settings-window-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-tabs {
+  height: 40px;
+  background: rgba(0,0,0,0.15);
+  border-bottom: var(--window-border);
+  display: flex;
+  padding: 0 16px;
+}
+
+body.theme-classic .settings-tabs {
+  background: #d6d6d6;
+  border-bottom: 1.5px solid #808080;
+  height: 28px;
+  padding: 0 8px;
+}
+
+.tab-btn {
+  padding: 0 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  outline: none;
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: bold;
+}
+
+body.theme-classic .tab-btn.active {
+  background: #c0c0c0;
+  color: #000;
+  border: 1px solid #808080;
+  border-bottom-color: transparent;
+}
+
+.settings-content {
+  flex-grow: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-section.active {
+  display: flex;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 700;
+  border-bottom: var(--window-border);
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-group-row {
+  display: flex;
+  gap: 16px;
+}
+
+.col-6 {
+  width: 50%;
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: var(--input-bg);
+  border: var(--input-border);
+  color: var(--text-primary);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+body.theme-classic .form-control {
+  border-top: 1.5px solid #808080;
+  border-left: 1.5px solid #808080;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+  border-radius: 0;
+  background: #ffffff;
+  color: #000;
+}
+
+.form-control:focus {
+  border: var(--input-focus);
+}
+
+/* Avatar grid selection */
+.avatar-grid {
+  display: flex;
+  gap: 10px;
+}
+
+.avatar-selector {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.03);
+  border: var(--window-border);
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.avatar-selector.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(168, 85, 247, 0.15);
+}
+
+body.theme-classic .avatar-selector {
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+}
+
+body.theme-classic .avatar-selector.active {
+  background: #b8b8b8;
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+}
+
+/* Theme selector card grid */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-gap: 16px;
+}
+
+.theme-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: var(--window-border);
+  padding: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.theme-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+}
+
+body.theme-classic .theme-card {
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+}
+
+body.theme-classic .theme-card.active {
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+}
+
+.theme-preview-box {
+  width: 100%;
+  height: 50px;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Theme Card preview backgrounds */
+.aero-preview {
+  background: linear-gradient(135deg, #1a103c 0%, #070514 100%);
+}
+.terminal-preview {
+  background: #020202;
+  border: 1px solid #00ff00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #00ff00;
+  font-family: monospace;
+}
+.classic-preview {
+  background: #008080;
+  border: 1.5px solid #808080;
+  padding: 4px;
+}
+.classic-preview .preview-title {
+  background: #000080;
+  color: #fff;
+  font-size: 8px;
+  height: 10px;
+}
+.sunset-preview {
+  background: linear-gradient(180deg, #ff71ce 0%, #01cdfe 100%);
+}
+.cyberpunk-preview {
+  background: #0b0b0f;
+  border: 1px solid #fcee0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fcee0a;
+  font-family: monospace;
+}
+.nord-preview {
+  background: linear-gradient(135deg, #2e3440 0%, #4c566a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.input-unit {
+  position: relative;
+  display: flex;
+}
+.input-unit input {
+  padding-right: 50px;
+}
+.unit-tag {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.field-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.network-addresses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0,0,0,0.2);
+  border: var(--window-border);
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.ip-row {
+  display: flex;
+  justify-content: space-between;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+/* Toggle Switch */
+.toggle-switch-container {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch-container input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-label {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: rgba(255,255,255,0.1);
+  transition: .2s;
+  border-radius: 24px;
+}
+
+.toggle-label:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+}
+
+.toggle-switch-container input:checked + .toggle-label {
+  background-color: var(--accent);
+}
+
+.toggle-switch-container input:checked + .toggle-label:before {
+  transform: translateX(20px);
+}
+
+/* --------------------------------------------------------------------------
+   9. Taskbar / System Dock
+   -------------------------------------------------------------------------- */
+.taskbar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 48px;
+  background: var(--taskbar-bg);
+  border-top: var(--taskbar-border);
+  backdrop-filter: var(--backdrop-blur);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  z-index: 9999;
+}
+
+body.theme-classic .taskbar {
+  background: #c0c0c0;
+  border-top: 2px solid #ffffff;
+  height: 32px;
+  padding: 0 4px;
+}
+
+.start-menu-btn {
+  background: var(--btn-primary-bg);
+  border: var(--window-border);
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+body.theme-classic .start-menu-btn {
+  background: #c0c0c0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  color: #000;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+body.theme-classic .start-menu-btn:active {
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+}
+
+.taskbar-tabs-scroller {
+  flex-grow: 1;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  max-width: 60%;
+}
+
+body.theme-classic .taskbar-tabs-scroller {
+  justify-content: flex-start;
+  max-width: 75%;
+}
+
+.taskbar-tab {
+  background: rgba(255, 255, 255, 0.03);
+  border: var(--window-border);
+  color: var(--text-secondary);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.taskbar-tab:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.taskbar-tab.active {
+  background: var(--taskbar-tab-active);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+body.theme-classic .taskbar-tab {
+  background: #c0c0c0;
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  color: #000;
+  padding: 2px 8px;
+  font-size: 11px;
+  height: 24px;
+}
+
+body.theme-classic .taskbar-tab.active {
+  background: #eaeaea;
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+  font-weight: bold;
+}
+
+/* System Tray panel */
+.system-tray {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tray-clock {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tray-network-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.theme-classic .system-tray {
+  border-top: 1px solid #555;
+  border-left: 1px solid #555;
+  border-right: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  padding: 2px 6px;
+  font-size: 11px;
+  background: #c0c0c0;
+  height: 24px;
+  gap: 6px;
+}
+
+body.theme-classic .tray-clock {
+  font-size: 11px;
+  color: #000;
+}
+
+.online-blink {
+  animation: online-pulse 1.5s infinite;
+}
+
+/* --------------------------------------------------------------------------
+   10. Interactive Buttons and UI Components
+   -------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.25);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary:hover {
+  background: var(--btn-primary-hover);
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 20px rgba(168, 85, 247, 0.4);
+}
+
+.btn-primary:active {
+  transform: translateY(0.5px);
+}
+
+.btn-secondary {
+  background: var(--btn-secondary-bg);
+  border: var(--window-border);
+  color: var(--text-primary);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-secondary:hover {
+  background: var(--btn-secondary-hover);
+  transform: translateY(-1.5px);
+}
+
+.btn-secondary:active {
+  transform: translateY(0.5px);
+}
+
+body.theme-classic .btn {
+  border-top: 1.5px solid #fff;
+  border-left: 1.5px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+  padding: 4px 10px;
+}
+
+body.theme-classic .btn:active {
+  border-top: 1.5px solid #555;
+  border-left: 1.5px solid #555;
+  border-right: 1px solid #fff;
+  border-bottom: 1px solid #fff;
+}
+
+body.theme-terminal .btn {
+  border: 1px solid #00ff00;
+  background: transparent;
+  color: #00ff00;
+  border-radius: 0;
+}
+
+body.theme-terminal .btn:hover {
+  background: #00ff00;
+  color: #000000;
+}
+
+.cursor-pointer { cursor: pointer; }
+.hidden-input { display: none !important; }
+
+/* --------------------------------------------------------------------------
+   11. Prompt Dialog Overlays
+   -------------------------------------------------------------------------- */
+.prompt-overlay {
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999999;
+}
+
+.prompt-dialog {
+  background: var(--window-bg);
+  border: var(--window-border);
+  box-shadow: var(--window-shadow);
+  border-radius: var(--window-radius);
+  width: 400px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+body.theme-classic .prompt-dialog {
+  background: #c0c0c0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  border-radius: 0;
+}
+
+.prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.prompt-header i {
+  font-size: 28px;
+  color: var(--accent);
+}
+.prompt-header h5 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.prompt-body {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.prompt-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: var(--window-border);
+  padding: 12px;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+body.theme-classic .prompt-file-card {
+  background: #d6d6d6;
+  border: 1px solid #808080;
+  border-radius: 0;
+}
+
+.prompt-file-info h6 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.prompt-file-info span {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.prompt-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   12. Notification system toasts
+   -------------------------------------------------------------------------- */
+.system-toast-container {
+  position: fixed;
+  bottom: 60px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999999;
+  width: 300px;
+  pointer-events: none;
+}
+
+.sys-toast {
+  background: rgba(26, 18, 52, 0.9);
+  border: var(--window-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  pointer-events: auto;
+  animation: slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+body.theme-classic .sys-toast {
+  background: #c0c0c0;
+  border: 1.5px solid #000;
+  color: #000;
+  border-radius: 0;
+}
+
+.sys-toast.toast-success i { color: var(--success); }
+.sys-toast.toast-error i { color: var(--danger); }
+.sys-toast.toast-info i { color: var(--accent-secondary); }
+
+/* --------------------------------------------------------------------------
+   13. CSS Keyframe Animations
+   -------------------------------------------------------------------------- */
+@keyframes sweep-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes peer-ping {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+@keyframes online-pulse {
+  0% { color: var(--success); opacity: 1; }
+  50% { color: var(--success); opacity: 0.4; }
+  100% { color: var(--success); opacity: 1; }
+}
+
+@keyframes slide-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes animate-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* --------------------------------------------------------------------------
+   14. Mobile Responsive Sizing Override Toggles
+   -------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .desktop-grid {
+    left: 10px;
+    top: 10px;
+    grid-template-rows: repeat(auto-fill, 75px);
+    grid-gap: 12px;
+  }
+  
+  .desktop-shortcut {
+    width: 75px;
+    height: 75px;
+  }
+  .shortcut-icon {
+    width: 38px;
+    height: 38px;
+    font-size: 24px;
+  }
+  
+  .sys-window {
+    width: 100% !important;
+    height: calc(100% - 48px) !important;
+    top: 0 !important;
+    left: 0 !important;
+    border-radius: 0px !important;
+  }
+  
+  .explorer-body, .radar-window-body {
+    flex-direction: column;
+  }
+  
+  .explorer-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: var(--window-border);
+    padding: 10px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .explorer-sidebar h6, .explorer-sidebar hr, .sidebar-note {
+    display: none;
+  }
+  
+  .radar-list-pane {
+    width: 100%;
+    border-left: none;
+    border-top: var(--window-border);
+  }
+  .radar-visual-pane {
+    height: 220px;
+  }
+  .radar-circle-outer {
+    width: 180px;
+    height: 180px;
+  }
+  
+  .settings-window-body {
+    height: 100%;
+  }
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .taskbar {
+    padding: 0 8px;
+  }
+  .taskbar-tabs-scroller {
+    max-width: 45%;
+  }
+  .taskbar-tab {
+    padding: 6px 8px;
+  }
+  .tab-label, .start-label, .d-none-mobile {
+    display: none !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   15. Pending Upload Approvals & OTP Banner Styles
+   -------------------------------------------------------------------------- */
+.pending-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: var(--window-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  gap: 12px;
+}
+
+body.theme-classic .pending-item {
+  background: #d6d6d6;
+  border: 1px solid #808080;
+  border-radius: 0;
+}
+
+body.theme-terminal .pending-item {
+  background: #000;
+  border: 1px solid var(--accent);
+}
+
+.pending-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pending-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.theme-terminal .pending-name {
+  color: var(--accent);
+}
+
+.pending-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.pending-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-approve, .btn-reject {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  outline: none;
+}
+
+.btn-approve {
+  background: var(--success);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.btn-reject {
+  background: var(--danger);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+body.theme-classic .btn-approve {
+  background: #c0c0c0;
+  color: #000;
+  border-top: 1px solid #fff;
+  border-left: 1px solid #fff;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  border-radius: 0;
+}
+
+body.theme-classic .btn-reject {
+  background: #c0c0c0;
+  color: #000;
+  border-top: 1px solid #fff;
+  border-left: 1px solid #fff;
+  border-right: 1px solid #000;
+  border-bottom: 1px solid #000;
+  border-radius: 0;
+}
+
+body.theme-terminal .btn-approve {
+  background: #000;
+  border: 1px solid #00ff00;
+  color: #00ff00;
+  border-radius: 0;
+}
+
+body.theme-terminal .btn-reject {
+  background: #000;
+  border: 1px solid #ff0000;
+  color: #ff0000;
+  border-radius: 0;
+}
+
+
+/* --------------------------------------------------------------------------
+   15. Start Menu Panel & Connection Share Hub
+   -------------------------------------------------------------------------- */
+.start-menu-panel {
+  position: absolute;
+  bottom: 56px;
+  left: 16px;
+  width: 320px;
+  background: var(--window-bg);
+  border: var(--window-border);
+  box-shadow: var(--window-shadow);
+  border-radius: var(--window-radius);
+  backdrop-filter: var(--backdrop-blur);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  animation: slide-up-boot 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+@keyframes slide-up-boot {
+  from { transform: translateY(15px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.start-menu-header {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: var(--window-border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.start-menu-header i {
+  color: var(--accent);
+}
+
+.start-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  outline: none;
+}
+
+.start-menu-item i {
+  font-size: 16px;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.start-menu-item:hover {
+  background: var(--btn-secondary-hover);
+  color: #fff;
+}
+
+.start-menu-item:hover i {
+  transform: scale(1.15);
+  color: var(--accent);
+}
+
+/* Theme Classic macOS overrides for Start Menu */
+body.theme-classic .start-menu-panel {
+  bottom: 36px;
+  left: 4px;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 1.5px solid #555;
+  border-bottom: 1.5px solid #555;
+  background: #c0c0c0;
+  box-shadow: none;
+  border-radius: 0;
+  backdrop-filter: none;
+}
+
+body.theme-classic .start-menu-header {
+  border-bottom: 1px solid #808080;
+  background: #b8b8b8;
+  padding: 8px 12px;
+}
+
+body.theme-classic .start-menu-header i {
+  color: #000080;
+}
+
+body.theme-classic .start-menu-item {
+  border-radius: 0;
+  padding: 6px 12px;
+  color: #000;
+}
+
+body.theme-classic .start-menu-item i {
+  color: #000;
+}
+
+body.theme-classic .start-menu-item:hover {
+  background: #000080;
+  color: #fff;
+}
+
+body.theme-classic .start-menu-item:hover i {
+  color: #fff;
+}
+
+body.theme-classic .start-menu-footer {
+  border-top: 1px solid #808080 !important;
+  background: #b8b8b8 !important;
+}
+
+/* Theme Terminal overrides for Start Menu */
+body.theme-terminal .start-menu-panel {
+  border: 1.5px solid var(--accent);
+  background: #000000;
+  border-radius: 0;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+  backdrop-filter: none;
+  bottom: 52px;
+  left: 10px;
+}
+
+body.theme-terminal .start-menu-header {
+  border-bottom: 1px solid var(--accent);
+}
+
+body.theme-terminal .start-menu-item {
+  border-radius: 0;
+  border: 1px solid transparent;
+}
+
+body.theme-terminal .start-menu-item:hover {
+  border-color: var(--accent);
+  background: rgba(0, 255, 0, 0.15);
+  color: #00ff00;
+}
+
+/* Connection Share Hub styles */
+.share-address-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0,0,0,0.2);
+  border: var(--window-border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  gap: 10px;
+}
+
+body.theme-classic .share-address-row {
+  background: #d6d6d6;
+  border: 1px solid #808080;
+  border-radius: 0;
+  color: #000;
+}
+
+body.theme-terminal .share-address-row {
+  background: #000;
+  border: 1px solid var(--text-muted);
+}
+
+.share-address-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex-grow: 1;
+}
+
+.share-address-name {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+body.theme-classic .share-address-name {
+  color: #555;
+}
+
+.share-address-url {
+  font-size: 11px;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+body.theme-classic .share-address-url {
+  color: #000;
+}
+
+.share-actions-group {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Spinner class for refresh icons */
+.bi-spin-animate {
+  animation: sweep-spin 0.6s linear infinite;
+  display: inline-block;
+}
+

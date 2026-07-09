@@ -1,0 +1,11 @@
+node_modules/
+.env
+shared_files/*
+!shared_files/.gitkeep
+*.mp4
+*.mov
+*.mkv
+*.avi
+dist/
+build/
+.cache/

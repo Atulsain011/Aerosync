@@ -1959,16 +1959,38 @@ body.theme-classic .sys-toast {
   }
   
   .explorer-sidebar {
-    width: 100%;
-    border-right: none;
-    border-bottom: var(--window-border);
-    padding: 10px;
-    flex-direction: row;
-    align-items: center;
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: var(--window-border) !important;
+    padding: 12px !important;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px !important;
+    align-items: start !important;
+  }
+  .sidebar-header {
+    grid-column: span 2;
+    display: flex;
     justify-content: space-between;
+    align-items: center;
+  }
+  .explorer-sidebar .storage-card {
+    margin: 0 !important;
+    height: 100%;
   }
   .explorer-sidebar h6, .explorer-sidebar hr, .sidebar-note {
-    display: none;
+    display: none !important;
+  }
+  
+  .explorer-toolbar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .search-box {
+    flex-grow: 1 !important;
+  }
+  .col-date {
+    display: none !important;
   }
   
   .radar-list-pane {
@@ -1986,6 +2008,17 @@ body.theme-classic .sys-toast {
   
   .settings-window-body {
     height: 100%;
+  }
+  .settings-tabs {
+    padding: 0 8px !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+  }
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
   }
   .theme-grid {
     grid-template-columns: 1fr;

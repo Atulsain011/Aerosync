@@ -6,1278 +6,246 @@ const path = require('path');
 const multer = require('multer');
 const mime = require('mime-types');
 const crypto = require('crypto');
+
+const { db, saveDb, addAuditLog, CLOUD_SECRET } = require('./db');
 const { loadSettings } = require('./settings');
 const { clients } = require('./signaling');
 const { isLocalAddress } = require('./utils/network');
+const { activeSessions } = require('./auth');
+const mockCloud = require('./mockCloud');
 
-// ============================================================
-// PRODUCTION CONFIGURATION
-// ============================================================
 const CONFIG = {
-  // Chunk size: 150MB - Optimal for most networks
   MAX_CHUNK_SIZE: 150 * 1024 * 1024,
-
-  // Merge buffer: 16MB - Reduces I/O operations
-  MERGE_BUFFER_SIZE: 16 * 1024 * 1024,
-
-  // Session timeout: 24 hours
   SESSION_TIMEOUT: 24 * 60 * 60 * 1000,
-
-  // Cleanup interval: Every hour
   CLEANUP_INTERVAL: 60 * 60 * 1000,
-
-  // Max retry attempts for failed operations
-  MAX_RETRIES: 3,
-
-  // Retry delay in milliseconds
-  RETRY_DELAY: 1000,
-
-  // Upload timeout: 30 minutes
-  UPLOAD_TIMEOUT: 30 * 60 * 1000,
-
-  // Max concurrent uploads per session
-  MAX_CONCURRENT_CHUNKS: 5
+  UPLOAD_TIMEOUT: 30 * 60 * 1000
 };
 
 // ============================================================
-// ENHANCED SESSION MANAGEMENT
+// DYNAMIC MEMORY SESSION CACHE FOR CHUNK TRACKING
 // ============================================================
-class UploadSession {
+class LocalUploadSession {
   constructor(uploadId, meta) {
     this.uploadId = uploadId;
     this.meta = meta;
     this.completedChunks = new Set();
     this.isMerging = false;
-    this.mergeError = null;
     this.createdAt = Date.now();
     this.lastActivity = Date.now();
-    this.totalChunks = parseInt(meta.totalChunks, 10);
-    this.chunkTimestamps = new Map();
-    this.uploadStartTime = Date.now();
-    this.bytesUploaded = 0;
-    this.uploadSpeed = 0;
-    this.lock = false;
   }
-
-  addChunk(index, size = 0) {
+  addChunk(index) {
     this.completedChunks.add(index);
-    this.chunkTimestamps.set(index, Date.now());
-    this.bytesUploaded += size;
     this.lastActivity = Date.now();
-
-    // Calculate upload speed (MB/s)
-    const elapsed = (Date.now() - this.uploadStartTime) / 1000;
-    if (elapsed > 0) {
-      this.uploadSpeed = (this.bytesUploaded / 1024 / 1024) / elapsed;
-    }
   }
-
   isComplete() {
-    return this.completedChunks.size === this.totalChunks;
+    return this.completedChunks.size === parseInt(this.meta.totalChunks, 10);
   }
-
-  getMissingChunks() {
-    const missing = [];
-    for (let i = 0; i < this.totalChunks; i++) {
-      if (!this.completedChunks.has(i)) {
-        missing.push(i);
-      }
-    }
-    return missing;
-  }
-
   getProgress() {
-    return Math.round((this.completedChunks.size / this.totalChunks) * 100);
-  }
-
-  getETA() {
-    if (this.uploadSpeed === 0 || this.completedChunks.size === 0) return null;
-    const remainingChunks = this.totalChunks - this.completedChunks.size;
-    const avgChunkSize = this.bytesUploaded / this.completedChunks.size;
-    const remainingBytes = remainingChunks * avgChunkSize;
-    const remainingSeconds = remainingBytes / 1024 / 1024 / this.uploadSpeed;
-    return Math.round(remainingSeconds);
-  }
-
-  isExpired() {
-    return Date.now() - this.lastActivity > CONFIG.SESSION_TIMEOUT;
-  }
-
-  canMerge() {
-    return this.isComplete() && !this.isMerging && !this.mergeError;
+    return Math.round((this.completedChunks.size / parseInt(this.meta.totalChunks, 10)) * 100);
   }
 }
-
-const uploadSessions = new Map();
+const localUploads = new Map();
 
 // ============================================================
-// OPTIMIZED HELPERS
-// ============================================================
-function broadcastToHosts(data) {
-  const raw = JSON.stringify(data);
-  clients.forEach((client) => {
-    if (client.isHost && client.socket.readyState === 1) {
-      try { client.socket.send(raw); } catch (err) { /* ignore */ }
-    }
-  });
-}
-
-function broadcastToAll(data) {
-  const raw = JSON.stringify(data);
-  clients.forEach((client) => {
-    if (client.socket.readyState === 1) {
-      try { client.socket.send(raw); } catch (err) { /* ignore */ }
-    }
-  });
-}
-
-function isSafeUploadId(uploadId) {
-  return typeof uploadId === 'string' && /^[a-zA-Z0-9_-]+$/.test(uploadId);
-}
-
-function sanitizeFilename(filename) {
-  // Remove dangerous characters
-  return filename.replace(/[^a-zA-Z0-9\-_. ]/g, '');
-}
-
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// ============================================================
-// ADVANCED AUTHORIZATION
+// SECURITY MIDDLEWARE: checkAuthorized
 // ============================================================
 function checkAuthorized(req, res, next) {
-  // Check if request is from localhost
-  if (isLocalAddress(req.socket.remoteAddress)) {
-    req.isTrusted = true;
+  // 1. Check X-Session-Token first to ensure tokened requests are isolated correctly even on localhost
+  const sessionToken = req.headers['x-session-token'] || req.query.sessionToken || req.body.sessionToken;
+  if (sessionToken && activeSessions.has(sessionToken)) {
+    const s = activeSessions.get(sessionToken);
+    req.user = { id: s.userId, email: s.email, username: s.username };
     return next();
   }
 
-  // Check client ID
+  // 2. Check if request is from localhost (auto-login host fallback)
+  if (isLocalAddress(req.socket.remoteAddress)) {
+    req.user = { id: 'host', email: 'host@aerosync.local', username: 'Host System' };
+    return next();
+  }
+
+  // 3. Check client ID authorized via OTP in signaling WebSocket
   const clientId = req.headers['x-client-id'] || req.query.clientId || req.body.clientId;
   if (clientId && clients.has(clientId)) {
     const client = clients.get(clientId);
-    req.isTrusted = client.isTrusted || false;
-    req.clientId = clientId;
-    req.clientInfo = client;
-    return next();
-  }
-
-  // Check API key (for service-to-service communication)
-  const apiKey = req.headers['x-api-key'];
-  if (apiKey && process.env.API_KEY && apiKey === process.env.API_KEY) {
-    req.isTrusted = true;
-    return next();
+    if (client.isTrusted) {
+      // Find or register guest user
+      let guestUser = db.users.find(u => u.id === 'guest_' + clientId);
+      if (!guestUser) {
+        guestUser = {
+          id: 'guest_' + clientId,
+          email: `${clientId}@aerosync.local`,
+          username: client.username || 'Guest Peer',
+          passwordHash: ''
+        };
+        db.users.push(guestUser);
+        saveDb();
+      }
+      req.user = guestUser;
+      return next();
+    }
   }
 
   return res.status(401).json({
-    error: 'Unauthorized: Complete OTP authorization first',
+    error: 'Unauthorized: Complete login or OTP authentication first',
     code: 'UNAUTHORIZED'
   });
 }
 
+// Attach middleware
 router.use(checkAuthorized);
 
 // ============================================================
-// MULTER STORAGE WITH VALIDATION
+// MULTER STORAGE CONFIGURATION WITH USER ISOLATION
 // ============================================================
-const tempStorage = multer.diskStorage({
+const isolatedStorage = multer.diskStorage({
   destination: async (req, file, cb) => {
     try {
       const uploadId = req.body.uploadId || req.query.uploadId || req.headers['x-upload-id'];
       if (!uploadId) {
-        return cb(new Error('Missing uploadId (required in body, query, or x-upload-id header)'));
-      }
-      if (!isSafeUploadId(uploadId)) {
-        return cb(new Error('Invalid uploadId format'));
+        return cb(new Error('Missing x-upload-id header'));
       }
 
       const settings = loadSettings();
-      if (!settings || !settings.sharedDirectory) {
-        return cb(new Error('Settings not properly configured'));
-      }
-
-      const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
+      const ownerId = req.user.id;
+      // Chunks are stored in user isolated directory
+      const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
       await fsPromises.mkdir(tempDir, { recursive: true });
-
-      // Check disk space
-      const { available } = await checkDiskSpace(tempDir);
-      if (available < CONFIG.MAX_CHUNK_SIZE * 2) {
-        return cb(new Error('Insufficient disk space for upload'));
-      }
-
       cb(null, tempDir);
-    } catch (err) {
-      cb(new Error(`Failed to create temp directory: ${err.message}`));
-    }
-  },
-  filename: (req, file, cb) => {
-    try {
-      const chunkIndex = req.body.chunkIndex || req.query.chunkIndex || req.headers['x-chunk-index'];
-      if (chunkIndex === undefined) {
-        return cb(new Error('Missing chunkIndex (required in body, query, or x-chunk-index header)'));
-      }
-
-      const index = parseInt(chunkIndex, 10);
-      if (isNaN(index) || index < 0) {
-        return cb(new Error('Invalid chunkIndex: must be a positive integer'));
-      }
-
-      cb(null, `chunk_${index}`);
     } catch (err) {
       cb(err);
     }
+  },
+  filename: (req, file, cb) => {
+    const chunkIndex = req.body.chunkIndex || req.query.chunkIndex || req.headers['x-chunk-index'];
+    if (chunkIndex === undefined) {
+      return cb(new Error('Missing x-chunk-index header'));
+    }
+    cb(null, `chunk_${chunkIndex}`);
   }
 });
 
-// File filter for security
-const fileFilter = (req, file, cb) => {
-  // Allow all files but validate size
-  cb(null, true);
-};
-
 const upload = multer({
-  storage: tempStorage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: CONFIG.MAX_CHUNK_SIZE,
-    files: 1,
-    parts: 10,
-    headerSize: 8192
-  }
+  storage: isolatedStorage,
+  limits: { fileSize: CONFIG.MAX_CHUNK_SIZE }
 }).single('chunk');
 
 // ============================================================
-// DISK SPACE CHECKER
-// ============================================================
-async function checkDiskSpace(directory) {
-  try {
-    const stats = await fsPromises.statfs ?
-      await fsPromises.statfs(directory) :
-      { bavail: 1024 * 1024 * 1024, bsize: 4096 }; // Fallback: 4GB
-    return {
-      available: stats.bavail * stats.bsize,
-      total: stats.blocks * stats.bsize
-    };
-  } catch (err) {
-    // Fallback: assume 1GB available
-    return { available: 1 * 1024 * 1024 * 1024, total: 10 * 1024 * 1024 * 1024 };
-  }
-}
-
-// ============================================================
-// UPLOAD INIT - ENHANCED
+// UPLOAD ROUTE: LAN MODE INIT
 // ============================================================
 router.post('/upload/init', async (req, res) => {
-  const { name, size, totalChunks, mimeType, uploadId, expectedHash, metadata } = req.body;
+  const { name, size, totalChunks, uploadId, receiverClientId, receiverUserId } = req.body;
 
-  // Validate required parameters
   if (!name || !size || !totalChunks || !uploadId) {
-    return res.status(400).json({
-      error: 'Missing required parameters',
-      required: ['name', 'size', 'totalChunks', 'uploadId'],
-      received: Object.keys(req.body),
-      code: 'MISSING_PARAMS'
-    });
+    return res.status(400).json({ error: 'Missing required initialization parameters' });
   }
-
-  // Validate uploadId
-  if (!isSafeUploadId(uploadId)) {
-    return res.status(400).json({
-      error: 'Invalid uploadId format',
-      code: 'INVALID_UPLOAD_ID'
-    });
-  }
-
-  // Validate size
-  const parsedSize = parseInt(size, 10);
-  if (isNaN(parsedSize) || parsedSize <= 0) {
-    return res.status(400).json({
-      error: 'Invalid file size',
-      code: 'INVALID_SIZE'
-    });
-  }
-
-  // Validate totalChunks
-  const parsedTotalChunks = parseInt(totalChunks, 10);
-  if (isNaN(parsedTotalChunks) || parsedTotalChunks <= 0) {
-    return res.status(400).json({
-      error: 'Invalid totalChunks',
-      code: 'INVALID_TOTAL_CHUNKS'
-    });
-  }
-
-  // Check if file already exists
-  const settings = loadSettings();
-  const finalPath = path.join(settings.sharedDirectory, name);
-  if (fs.existsSync(finalPath)) {
-    // Check if it's a resume or new upload
-    const stats = await fsPromises.stat(finalPath);
-    if (stats.size === parsedSize) {
-      return res.status(409).json({
-        error: 'File already exists with same size',
-        code: 'FILE_EXISTS',
-        fileId: Buffer.from(name).toString('hex')
-      });
-    }
-  }
-
   try {
-    const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
+    const { expireFreePlanFiles } = require('./db');
+    expireFreePlanFiles();
+
+    const settings = loadSettings();
+    const ownerId = req.user.id;
+
+    // Resolve receiver user
+    let resolvedReceiverId = receiverUserId || null;
+    if (!resolvedReceiverId && receiverClientId) {
+      // Check if client corresponds to a guest user or registered user
+      const client = clients.get(receiverClientId);
+      if (client) {
+        resolvedReceiverId = client.id; // Map to guest client ID
+      }
+    }
+
+    const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
     await fsPromises.mkdir(tempDir, { recursive: true });
 
-    // Create session metadata
     const meta = {
-      name: sanitizeFilename(name),
-      size: parsedSize,
-      totalChunks: parsedTotalChunks,
-      mimeType: mimeType || 'application/octet-stream',
+      name,
+      size: parseInt(size, 10),
+      totalChunks: parseInt(totalChunks, 10),
       uploadId,
-      expectedHash,
-      metadata: metadata || {},
-      initializedAt: Date.now(),
-      clientId: req.clientId || 'unknown'
+      owner_user_id: ownerId,
+      receiver_user_id: resolvedReceiverId,
+      initializedAt: Date.now()
     };
 
-    // Save metadata to disk
-    await fsPromises.writeFile(
-      path.join(tempDir, 'meta.json'),
-      JSON.stringify(meta, null, 2),
-      'utf8'
-    );
+    await fsPromises.writeFile(path.join(tempDir, 'meta.json'), JSON.stringify(meta, null, 2), 'utf8');
 
-    // Create or recover session
-    let session = uploadSessions.get(uploadId);
+    let session = localUploads.get(uploadId);
     if (!session) {
-      session = new UploadSession(uploadId, meta);
-
-      // Check for existing chunks (resume support)
-      try {
-        const files = await fsPromises.readdir(tempDir);
-        let totalSize = 0;
-        for (const file of files) {
-          if (file.startsWith('chunk_')) {
-            const idx = parseInt(file.split('_')[1], 10);
-            if (!isNaN(idx)) {
-              const stat = await fsPromises.stat(path.join(tempDir, file));
-              session.addChunk(idx, stat.size);
-              totalSize += stat.size;
-            }
-          }
-        }
-        console.log(`[Upload] Recovered ${session.completedChunks.size}/${meta.totalChunks} chunks for ${uploadId}`);
-      } catch (err) {
-        // Ignore recovery errors
-      }
-      uploadSessions.set(uploadId, session);
+      session = new LocalUploadSession(uploadId, meta);
+      localUploads.set(uploadId, session);
     }
 
-    // Calculate ETA
-    const eta = session.getETA();
-
     res.json({
-      message: 'Upload session initialized successfully',
+      message: 'LAN Upload session initialized successfully',
       uploadId,
       completedChunks: Array.from(session.completedChunks),
       totalChunks: meta.totalChunks,
-      progress: session.getProgress(),
-      eta: eta ? `${eta}s` : null,
-      uploadSpeed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      isResume: session.completedChunks.size > 0
+      progress: session.getProgress()
     });
-
-    // Broadcast initialization to hosts
-    broadcastToHosts({
-      type: 'upload-started',
-      uploadId,
-      name: meta.name,
-      size: meta.size,
-      clientId: req.clientId || 'unknown'
-    });
-
   } catch (err) {
     console.error('[Upload Init Error]', err);
-    res.status(500).json({
-      error: 'Failed to initialize upload session',
-      details: err.message,
-      code: 'INIT_FAILED'
-    });
+    res.status(500).json({ error: 'Failed to initialize local upload' });
   }
 });
 
 // ============================================================
-// UPLOAD CHUNK - PRODUCTION READY
+// UPLOAD ROUTE: LAN MODE CHUNK (MULTER)
 // ============================================================
 router.post('/upload/chunk', (req, res) => {
-  // Set timeout for long-running uploads
   req.setTimeout(CONFIG.UPLOAD_TIMEOUT);
   res.setTimeout(CONFIG.UPLOAD_TIMEOUT);
 
   upload(req, res, async (err) => {
     if (err) {
-      console.error('[Chunk Upload Error]', err);
-      return res.status(400).json({
-        error: err.message,
-        code: err.code || 'UPLOAD_ERROR'
-      });
+      return res.status(400).json({ error: err.message });
     }
-
     if (!req.file) {
-      return res.status(400).json({
-        error: 'No chunk file received',
-        code: 'NO_FILE'
+      return res.status(400).json({ error: 'No chunk block received' });
+    }
+
+    const chunkIndex = parseInt(req.body.chunkIndex || req.headers['x-chunk-index'], 10);
+    const uploadId = req.body.uploadId || req.headers['x-upload-id'];
+
+    let session = localUploads.get(uploadId);
+    if (session) {
+      session.addChunk(chunkIndex);
+      return res.json({
+        success: true,
+        chunkIndex,
+        progress: session.getProgress(),
+        isComplete: session.isComplete()
       });
     }
 
-    // Extract parameters
-    const chunkIndex = parseInt(
-      req.body.chunkIndex || req.query.chunkIndex || req.headers['x-chunk-index'],
-      10
-    );
-    const uploadId = req.body.uploadId || req.query.uploadId || req.headers['x-upload-id'];
-    const totalChunks = parseInt(
-      req.body.totalChunks || req.query.totalChunks || req.headers['x-total-chunks'] || 0,
-      10
-    );
-
-    if (isNaN(chunkIndex) || chunkIndex < 0) {
-      return res.status(400).json({
-        error: 'Invalid chunkIndex',
-        code: 'INVALID_INDEX'
-      });
-    }
-
-    // Get or recover session
-    let session = uploadSessions.get(uploadId);
-    if (!session) {
-      try {
-        const settings = loadSettings();
-        const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-        const metaPath = path.join(tempDir, 'meta.json');
-
-        if (fs.existsSync(metaPath)) {
-          const meta = JSON.parse(await fsPromises.readFile(metaPath, 'utf8'));
-          session = new UploadSession(uploadId, meta);
-
-          // Load existing chunks
-          const files = await fsPromises.readdir(tempDir);
-          for (const file of files) {
-            if (file.startsWith('chunk_')) {
-              const idx = parseInt(file.split('_')[1], 10);
-              if (!isNaN(idx)) {
-                const stat = await fsPromises.stat(path.join(tempDir, file));
-                session.addChunk(idx, stat.size);
-              }
-            }
-          }
-          uploadSessions.set(uploadId, session);
-          console.log(`[Upload] Recovered session ${uploadId} with ${session.completedChunks.size} chunks`);
-        } else {
-          return res.status(404).json({
-            error: 'Upload session not found. Please call /upload/init first.',
-            code: 'SESSION_NOT_FOUND'
-          });
-        }
-      } catch (recoveryErr) {
-        console.error('[Session Recovery Error]', recoveryErr);
-        return res.status(500).json({
-          error: 'Failed to recover upload session',
-          details: recoveryErr.message,
-          code: 'RECOVERY_FAILED'
-        });
-      }
-    }
-
-    // Validate chunk index
-    if (chunkIndex >= session.totalChunks) {
-      return res.status(400).json({
-        error: `Chunk index ${chunkIndex} exceeds total chunks ${session.totalChunks - 1}`,
-        code: 'INDEX_OUT_OF_RANGE',
-        maxIndex: session.totalChunks - 1
-      });
-    }
-
-    // Check if chunk already uploaded (idempotent)
-    if (session.completedChunks.has(chunkIndex)) {
-      // Verify chunk exists and has correct size
-      const settings = loadSettings();
-      const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-      const chunkPath = path.join(tempDir, `chunk_${chunkIndex}`);
-
-      if (fs.existsSync(chunkPath)) {
-        const stat = await fsPromises.stat(chunkPath);
-        // If chunk exists, return success
-        if (stat.size > 0) {
-          return res.json({
-            message: 'Chunk already uploaded',
-            chunkIndex,
-            duplicate: true,
-            progress: session.getProgress(),
-            completed: session.completedChunks.size,
-            total: session.totalChunks
-          });
-        }
-      }
-
-      // Chunk marked as completed but file missing - remove from set
-      session.completedChunks.delete(chunkIndex);
-    }
-
-    // Add chunk to session
-    const fileSize = req.file.size || 0;
-    session.addChunk(chunkIndex, fileSize);
-
-    // Check if all chunks are uploaded
-    const isComplete = session.isComplete();
-
-    // Send progress update via WebSocket
-    const progress = session.getProgress();
-    const eta = session.getETA();
-
-    broadcastToAll({
-      type: 'upload-progress',
-      uploadId,
-      chunkIndex,
-      progress,
-      completed: session.completedChunks.size,
-      total: session.totalChunks,
-      speed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      eta: eta ? `${eta}s` : null,
-      isComplete
-    });
-
-    res.json({
-      message: 'Chunk uploaded successfully',
-      chunkIndex,
-      progress,
-      completed: session.completedChunks.size,
-      total: session.totalChunks,
-      speed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      eta: eta ? `${eta}s` : null,
-      isComplete
-    });
-
-    // If complete, optionally auto-merge
-    if (isComplete && req.body.autoMerge === 'true') {
-      // Auto-merge in background
-      const isLocal = isLocalAddress(req.socket.remoteAddress) || req.isTrusted;
-      setImmediate(() => {
-        handleMerge(uploadId, req.body.expectedHash, isLocal).catch(err => {
-          console.error('[Auto-Merge Error]', err);
-        });
-      });
-    }
+    res.json({ success: true, chunkIndex });
   });
 });
 
 // ============================================================
-// MERGE FUNCTION - EXTRACTED FOR REUSE
-// ============================================================
-// ============================================================
-// MERGE FUNCTION - FIXED FOR LARGE FILES
-// ============================================================
-async function handleMerge(uploadId, expectedHashParam, isLocalOverride = null) {
-  const session = uploadSessions.get(uploadId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-
-  if (!session.canMerge()) {
-    throw new Error('Session cannot be merged');
-  }
-
-  session.isMerging = true;
-
-  try {
-    const settings = loadSettings();
-    // ✅ FIX: Use override or detect from caller
-    const isLocal = isLocalOverride !== null ? isLocalOverride : false;
-    const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-    const meta = session.meta;
-
-    let finalPath;
-    let fileId = null;
-
-    // ✅ FIX: Properly handle remote vs local
-    if (isLocal) {
-      finalPath = path.join(settings.sharedDirectory, meta.name);
-    } else {
-      const pendingDir = path.join(settings.sharedDirectory, '.pending_approvals');
-      await fsPromises.mkdir(pendingDir, { recursive: true });
-      fileId = crypto.randomBytes(16).toString('hex');
-      finalPath = path.join(pendingDir, `${fileId}_file`);
-    }
-
-    // Check if file already exists
-    if (fs.existsSync(finalPath) && isLocal) {
-      const ext = path.extname(meta.name);
-      const base = path.basename(meta.name, ext);
-      let counter = 1;
-      let newPath;
-      do {
-        newPath = path.join(settings.sharedDirectory, `${base} (${counter})${ext}`);
-        counter++;
-      } while (fs.existsSync(newPath));
-      finalPath = newPath;
-      console.log(`[Upload] File exists, renamed to ${path.basename(finalPath)}`);
-    }
-
-    // ============================================================
-    // ✅ FIXED: STREAMING MERGE - NO MEMORY OVERHEAD
-    // ============================================================
-    const totalChunks = session.totalChunks;
-    const mergeStartTime = Date.now();
-
-    // Use pipeline for memory-efficient streaming
-    const writeStream = fs.createWriteStream(finalPath, {
-      flags: 'wx',
-      highWaterMark: 16 * 1024 * 1024, // 16MB buffer
-      mode: 0o666
-    });
-
-    // ✅ Process chunks with streams (no loading into memory)
-    for (let i = 0; i < totalChunks; i++) {
-      const chunkPath = path.join(tempDir, `chunk_${i}`);
-
-      if (!fs.existsSync(chunkPath)) {
-        throw new Error(`Chunk ${i} is missing during merge`);
-      }
-
-      // ✅ Stream chunk directly to write stream
-      await new Promise((resolve, reject) => {
-        const readStream = fs.createReadStream(chunkPath, {
-          highWaterMark: 16 * 1024 * 1024
-        });
-
-        // Handle backpressure properly
-        const onError = (err) => {
-          readStream.destroy();
-          writeStream.destroy(err);
-          reject(err);
-        };
-
-        readStream.on('error', onError);
-        writeStream.on('error', onError);
-
-        // Pipe with backpressure handling
-        readStream.pipe(writeStream, { end: false });
-
-        readStream.on('end', () => {
-          readStream.destroy();
-          // Update progress
-          const mergeProgress = Math.round(((i + 1) / totalChunks) * 100);
-          broadcastToAll({
-            type: 'upload-merge-progress',
-            uploadId,
-            progress: mergeProgress,
-            chunk: i + 1,
-            total: totalChunks
-          });
-          resolve();
-        });
-      });
-    }
-
-    // Finalize write stream
-    await new Promise((resolve, reject) => {
-      writeStream.end();
-      writeStream.once('finish', resolve);
-      writeStream.once('error', reject);
-    });
-
-    const mergeTime = Date.now() - mergeStartTime;
-
-    // Verify file size
-    const stats = await fsPromises.stat(finalPath);
-    if (stats.size !== parseInt(meta.size, 10)) {
-      throw new Error(`File size mismatch: expected ${meta.size}, got ${stats.size}`);
-    }
-
-    // Calculate file hash (streaming)
-    const fileHash = await calculateFileHash(finalPath);
-    const expectedHash = expectedHashParam || meta.expectedHash;
-    if (expectedHash && fileHash !== expectedHash) {
-      await fsPromises.unlink(finalPath).catch(() => { });
-      throw new Error(`Hash mismatch: expected ${expectedHash}, got ${fileHash}`);
-    }
-
-    // Clean up temp directory
-    try {
-      await fsPromises.rm(tempDir, { recursive: true, force: true });
-    } catch (rmErr) {
-      console.warn('[Upload] Temp cleanup warning:', rmErr);
-    }
-
-    uploadSessions.delete(uploadId);
-
-    console.log(`[Upload] File merged: ${meta.name} (${formatFileSize(meta.size)}) in ${mergeTime}ms`);
-
-    return {
-      success: true,
-      finalPath,
-      fileId,
-      name: meta.name,
-      size: meta.size,
-      hash: fileHash,
-      mergeTime
-    };
-
-  } catch (err) {
-    console.error('[Merge Error]', err);
-    session.isMerging = false;
-    session.mergeError = err.message;
-    throw err;
-  }
-}
-// ============================================================
-// UPLOAD COMPLETE - PRODUCTION READY
-// ============================================================
-router.post('/upload/complete', async (req, res) => {
-  const { uploadId, expectedHash } = req.body;
-
-  if (!uploadId || !isSafeUploadId(uploadId)) {
-    return res.status(400).json({
-      error: 'Invalid or missing uploadId',
-      code: 'INVALID_UPLOAD_ID'
-    });
-  }
-
-  const session = uploadSessions.get(uploadId);
-  if (!session) {
-    return res.status(404).json({
-      error: 'Upload session not found',
-      code: 'SESSION_NOT_FOUND'
-    });
-  }
-
-  // Check if session can be merged
-  if (!session.canMerge()) {
-    if (session.isMerging) {
-      return res.status(409).json({
-        error: 'Upload is already being processed',
-        code: 'ALREADY_MERGING'
-      });
-    }
-    if (session.mergeError) {
-      return res.status(500).json({
-        error: 'Previous merge failed',
-        details: session.mergeError,
-        code: 'MERGE_FAILED'
-      });
-    }
-    if (!session.isComplete()) {
-      const missing = session.getMissingChunks();
-      return res.status(400).json({
-        error: 'Missing chunks',
-        code: 'MISSING_CHUNKS',
-        missingChunks: missing,
-        completed: Array.from(session.completedChunks),
-        total: session.totalChunks,
-        progress: session.getProgress()
-      });
-    }
-  }
-
-  try {
-    // Set uploadId for merge function
-    const isLocal = isLocalAddress(req.socket.remoteAddress) || req.isTrusted;
-
-    // Merge the file
-    const result = await handleMerge(uploadId, expectedHash, isLocal);
-
-    // If local, broadcast file update
-    if (isLocal) {
-      broadcastToAll({
-        type: 'file-list-updated',
-        file: {
-          name: result.name,
-          size: result.size,
-          path: result.finalPath
-        }
-      });
-    } else {
-      // Save pending metadata
-      const settings = loadSettings();
-      const pendingDir = path.join(settings.sharedDirectory, '.pending_approvals');
-      const pendingMetaPath = path.join(pendingDir, `${result.fileId}_meta.json`);
-      const senderName = req.body.senderName || 'Remote Peer';
-
-      const metaData = {
-        fileId: result.fileId,
-        name: result.name,
-        size: result.size,
-        mimeType: session.meta.mimeType || 'application/octet-stream',
-        senderName,
-        uploadedAt: Date.now(),
-        hash: result.hash,
-        clientId: req.clientId || 'unknown'
-      };
-
-      await fsPromises.writeFile(
-        pendingMetaPath,
-        JSON.stringify(metaData, null, 2),
-        'utf8'
-      );
-
-      broadcastToHosts({
-        type: 'upload-pending',
-        file: metaData
-      });
-    }
-
-    // Send response
-    res.json({
-      status: isLocal ? 'approved' : 'pending',
-      message: isLocal ? 'File completed and assembled successfully' : 'Upload complete. Waiting for host approval.',
-      name: result.name,
-      size: result.size,
-      mimeType: session.meta.mimeType || 'application/octet-stream',
-      hash: result.hash,
-      sha256: result.hash,
-      fileId: result.fileId,
-      mergeTime: `${result.mergeTime}ms`,
-      uploadedAt: new Date().toISOString()
-    });
-
-  } catch (err) {
-    console.error('[Complete Error]', err);
-
-    // Clean up
-    try {
-      const settings = loadSettings();
-      const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-      if (fs.existsSync(tempDir)) {
-        await fsPromises.rm(tempDir, { recursive: true, force: true });
-      }
-    } catch (cleanupErr) {
-      console.warn('[Cleanup Error]', cleanupErr);
-    }
-
-    res.status(500).json({
-      error: 'Failed to complete upload',
-      details: err.message,
-      code: 'COMPLETE_FAILED',
-      uploadId
-    });
-  }
-});
-
-// ============================================================
-// CALCULATE FILE HASH
-// ============================================================
-async function calculateFileHash(filePath) {
-  return new Promise((resolve, reject) => {
-    const hash = crypto.createHash('sha256');
-    const stream = fs.createReadStream(filePath, {
-      highWaterMark: 1024 * 1024 // 1MB chunks for hashing
-    });
-
-    stream.on('data', data => hash.update(data));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', reject);
-  });
-}
-
-// ============================================================
-// UPLOAD STATUS - ENHANCED
-// ============================================================
-router.get('/upload/status/:uploadId', async (req, res) => {
-  const { uploadId } = req.params;
-
-  if (!isSafeUploadId(uploadId)) {
-    return res.status(400).json({
-      error: 'Invalid uploadId format',
-      code: 'INVALID_UPLOAD_ID'
-    });
-  }
-
-  // Check memory session first
-  const session = uploadSessions.get(uploadId);
-  if (session) {
-    const missingChunks = session.getMissingChunks();
-    return res.json({
-      uploadId,
-      meta: session.meta,
-      completedChunks: Array.from(session.completedChunks),
-      progress: session.getProgress(),
-      isMerging: session.isMerging,
-      mergeError: session.mergeError,
-      missingChunks: missingChunks,
-      totalChunks: session.totalChunks,
-      uploadSpeed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      eta: session.getETA() ? `${session.getETA()}s` : null,
-      bytesUploaded: session.bytesUploaded,
-      isComplete: session.isComplete(),
-      canMerge: session.canMerge(),
-      status: session.isMerging ? 'merging' :
-        session.mergeError ? 'error' :
-          session.isComplete() ? 'complete' : 'uploading'
-    });
-  }
-
-  // Check disk
-  const settings = loadSettings();
-  const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-
-  if (!fs.existsSync(tempDir)) {
-    return res.status(404).json({
-      error: 'Upload session not found',
-      code: 'SESSION_NOT_FOUND'
-    });
-  }
-
-  try {
-    let meta = {};
-    const metaPath = path.join(tempDir, 'meta.json');
-    if (fs.existsSync(metaPath)) {
-      meta = JSON.parse(await fsPromises.readFile(metaPath, 'utf8'));
-    }
-
-    const files = await fsPromises.readdir(tempDir);
-    const completedChunks = [];
-    let bytesUploaded = 0;
-
-    for (const file of files) {
-      if (file.startsWith('chunk_')) {
-        const idx = parseInt(file.split('_')[1], 10);
-        if (!isNaN(idx)) {
-          completedChunks.push(idx);
-          const stat = await fsPromises.stat(path.join(tempDir, file));
-          bytesUploaded += stat.size;
-        }
-      }
-    }
-
-    res.json({
-      uploadId,
-      meta,
-      completedChunks,
-      progress: Math.round((completedChunks.length / meta.totalChunks) * 100),
-      totalChunks: meta.totalChunks,
-      bytesUploaded,
-      status: completedChunks.length === meta.totalChunks ? 'complete' : 'uploading'
-    });
-  } catch (err) {
-    console.error('[Status Error]', err);
-    res.status(500).json({
-      error: 'Failed to retrieve upload status',
-      details: err.message,
-      code: 'STATUS_FAILED'
-    });
-  }
-});
-
-// ============================================================
-// CANCEL UPLOAD - PRODUCTION READY
-// ============================================================
-router.delete('/upload/:uploadId', async (req, res) => {
-  const { uploadId } = req.params;
-
-  if (!isSafeUploadId(uploadId)) {
-    return res.status(400).json({
-      error: 'Invalid uploadId',
-      code: 'INVALID_UPLOAD_ID'
-    });
-  }
-
-  const settings = loadSettings();
-  const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-  const resolvedTmpRoot = path.resolve(settings.sharedDirectory, '.tmp');
-  const resolvedTempDir = path.resolve(tempDir);
-
-  // Security: Prevent directory traversal
-  if (!resolvedTempDir.startsWith(`${resolvedTmpRoot}${path.sep}`)) {
-    return res.status(403).json({
-      error: 'Access denied: Directory traversal blocked',
-      code: 'ACCESS_DENIED'
-    });
-  }
-
-  try {
-    // Remove session from memory
-    uploadSessions.delete(uploadId);
-
-    // Delete temporary files
-    if (fs.existsSync(tempDir)) {
-      await fsPromises.rm(resolvedTempDir, { recursive: true, force: true });
-      console.log(`[Upload] Cancelled session ${uploadId}`);
-    }
-
-    // Broadcast cancellation
-    broadcastToAll({
-      type: 'upload-cancelled',
-      uploadId
-    });
-
-    res.json({
-      message: 'Upload session cancelled successfully',
-      uploadId,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('[Cancel Error]', err);
-    res.status(500).json({
-      error: 'Failed to cancel upload session',
-      details: err.message,
-      code: 'CANCEL_FAILED'
-    });
-  }
-});
-
-// ============================================================
-// RETRY FAILED UPLOAD
-// ============================================================
-router.post('/upload/retry/:uploadId', async (req, res) => {
-  const { uploadId } = req.params;
-
-  if (!isSafeUploadId(uploadId)) {
-    return res.status(400).json({
-      error: 'Invalid uploadId',
-      code: 'INVALID_UPLOAD_ID'
-    });
-  }
-
-  const session = uploadSessions.get(uploadId);
-  if (!session) {
-    return res.status(404).json({
-      error: 'Session not found',
-      code: 'SESSION_NOT_FOUND'
-    });
-  }
-
-  if (session.isMerging) {
-    return res.status(409).json({
-      error: 'Upload is currently processing',
-      code: 'ALREADY_MERGING'
-    });
-  }
-
-  // Reset merge error
-  session.mergeError = null;
-  session.isMerging = false;
-
-  // Get missing chunks
-  const missingChunks = session.getMissingChunks();
-
-  res.json({
-    message: 'Retry initiated successfully',
-    uploadId,
-    missingChunks,
-    progress: session.getProgress(),
-    totalChunks: session.totalChunks,
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ============================================================
-// CLEANUP STALE SESSIONS
-// ============================================================
-setInterval(async () => {
-  const now = Date.now();
-  let cleanedCount = 0;
-
-  for (const [uploadId, session] of uploadSessions) {
-    if (session.isExpired()) {
-      cleanedCount++;
-      console.log(`[Cleanup] Removing stale session: ${uploadId} (${session.getProgress()}%)`);
-
-      // Remove from memory
-      uploadSessions.delete(uploadId);
-
-      // Remove files
-      try {
-        const settings = loadSettings();
-        const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-        if (fs.existsSync(tempDir)) {
-          await fsPromises.rm(tempDir, { recursive: true, force: true });
-        }
-      } catch (err) {
-        console.warn(`[Cleanup] Failed to remove files for ${uploadId}:`, err);
-      }
-    }
-  }
-
-  if (cleanedCount > 0) {
-    console.log(`[Cleanup] Removed ${cleanedCount} stale sessions`);
-  }
-}, CONFIG.CLEANUP_INTERVAL);
-
-// ============================================================
-// BATCH UPLOAD INITIALIZATION
-// ============================================================
-router.post('/upload/batch-init', async (req, res) => {
-  const { uploadId, files } = req.body;
-
-  if (!uploadId || !files || !Array.isArray(files)) {
-    return res.status(400).json({
-      error: 'Missing required parameters: uploadId and files array',
-      code: 'MISSING_PARAMS'
-    });
-  }
-
-  const settings = loadSettings();
-  const initializedFiles = [];
-
-  try {
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const { name, size, totalChunks, mimeType, expectedHash, metadata } = file;
-      const fileUploadId = `${uploadId}_${i}`;
-
-      const parsedSize = parseInt(size, 10);
-      const parsedTotalChunks = parseInt(totalChunks, 10);
-
-      const tempDir = path.join(settings.sharedDirectory, '.tmp', fileUploadId);
-      await fsPromises.mkdir(tempDir, { recursive: true });
-
-      const meta = {
-        name: sanitizeFilename(name),
-        size: parsedSize,
-        totalChunks: parsedTotalChunks,
-        mimeType: mimeType || 'application/octet-stream',
-        uploadId: fileUploadId,
-        expectedHash,
-        metadata: metadata || {},
-        initializedAt: Date.now(),
-        clientId: req.clientId || 'unknown'
-      };
-
-      await fsPromises.writeFile(
-        path.join(tempDir, 'meta.json'),
-        JSON.stringify(meta, null, 2),
-        'utf8'
-      );
-
-      let session = uploadSessions.get(fileUploadId);
-      if (!session) {
-        session = new UploadSession(fileUploadId, meta);
-        uploadSessions.set(fileUploadId, session);
-      }
-
-      initializedFiles.push({
-        uploadId: fileUploadId,
-        name: meta.name,
-        size: meta.size,
-        totalChunks: meta.totalChunks,
-        mimeType: meta.mimeType,
-        expectedHash
-      });
-
-      broadcastToHosts({
-        type: 'upload-started',
-        uploadId: fileUploadId,
-        name: meta.name,
-        size: meta.size,
-        clientId: req.clientId || 'unknown'
-      });
-    }
-
-    res.json({
-      batchId: uploadId,
-      files: initializedFiles
-    });
-  } catch (err) {
-    console.error('[Batch Init Error]', err);
-    res.status(500).json({
-      error: 'Failed to initialize batch upload',
-      details: err.message,
-      code: 'BATCH_INIT_FAILED'
-    });
-  }
-});
-
-// ============================================================
-// RAW CHUNK UPLOAD
+// UPLOAD ROUTE: LAN MODE RAW CHUNK (BINARY BODY)
 // ============================================================
 router.post('/upload/chunk/raw', express.raw({ type: 'application/octet-stream', limit: CONFIG.MAX_CHUNK_SIZE }), async (req, res) => {
   const uploadId = req.headers['x-upload-id'];
   const chunkIndexStr = req.headers['x-chunk-index'];
-  const contentRange = req.headers['content-range'];
 
   if (!uploadId || chunkIndexStr === undefined) {
-    return res.status(400).json({
-      error: 'Missing x-upload-id or x-chunk-index header',
-      code: 'MISSING_HEADERS'
-    });
+    return res.status(400).json({ error: 'Missing transfer headers' });
   }
 
   const chunkIndex = parseInt(chunkIndexStr, 10);
-  if (isNaN(chunkIndex) || chunkIndex < 0) {
-    return res.status(400).json({
-      error: 'Invalid x-chunk-index header',
-      code: 'INVALID_INDEX'
-    });
-  }
-
-  // Get or recover session
-  let session = uploadSessions.get(uploadId);
-  if (!session) {
-    try {
-      const settings = loadSettings();
-      const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-      const metaPath = path.join(tempDir, 'meta.json');
-
-      if (fs.existsSync(metaPath)) {
-        const meta = JSON.parse(await fsPromises.readFile(metaPath, 'utf8'));
-        session = new UploadSession(uploadId, meta);
-
-        // Load existing chunks
-        const files = await fsPromises.readdir(tempDir);
-        for (const file of files) {
-          if (file.startsWith('chunk_')) {
-            const idx = parseInt(file.split('_')[1], 10);
-            if (!isNaN(idx)) {
-              const stat = await fsPromises.stat(path.join(tempDir, file));
-              session.addChunk(idx, stat.size);
-            }
-          }
-        }
-        uploadSessions.set(uploadId, session);
-        console.log(`[Upload] Recovered session ${uploadId} with ${session.completedChunks.size} chunks`);
-      } else {
-        return res.status(404).json({
-          error: 'Upload session not found. Please call /upload/init first.',
-          code: 'SESSION_NOT_FOUND'
-        });
-      }
-    } catch (recoveryErr) {
-      console.error('[Session Recovery Error]', recoveryErr);
-      return res.status(500).json({
-        error: 'Failed to recover upload session',
-        details: recoveryErr.message,
-        code: 'RECOVERY_FAILED'
-      });
-    }
-  }
-
-  if (chunkIndex >= session.totalChunks) {
-    return res.status(400).json({
-      error: `Chunk index ${chunkIndex} exceeds total chunks ${session.totalChunks - 1}`,
-      code: 'INDEX_OUT_OF_RANGE',
-      maxIndex: session.totalChunks - 1
-    });
-  }
-
   const buffer = req.body;
-  if (!Buffer.isBuffer(buffer)) {
-    return res.status(400).json({
-      error: 'Invalid request body, expected raw binary buffer',
-      code: 'INVALID_BODY'
-    });
-  }
+  const contentRange = req.headers['content-range'];
 
   try {
     const settings = loadSettings();
-    const tempDir = path.join(settings.sharedDirectory, '.tmp', uploadId);
-    const chunkPath = path.join(tempDir, `chunk_${chunkIndex}`);
+    const ownerId = req.user.id;
+    const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
+    await fsPromises.mkdir(tempDir, { recursive: true });
 
+    const chunkPath = path.join(tempDir, `chunk_${chunkIndex}`);
     let chunkComplete = true;
-    let bytesWritten = buffer.length;
 
     if (contentRange) {
       // Format: bytes START-END/TOTAL
@@ -1300,290 +268,789 @@ router.post('/upload/chunk/raw', express.raw({ type: 'application/octet-stream',
           chunkComplete = false;
         }
       } else {
-        return res.status(400).json({
-          error: 'Invalid Content-Range header format',
-          code: 'INVALID_CONTENT_RANGE'
-        });
+        return res.status(400).json({ error: 'Invalid Content-Range header format' });
       }
     } else {
       await fsPromises.writeFile(chunkPath, buffer);
     }
 
-    if (chunkComplete) {
-      session.completedChunks.add(chunkIndex);
-      session.chunkTimestamps.set(chunkIndex, Date.now());
-    }
-    session.bytesUploaded += bytesWritten;
-    session.lastActivity = Date.now();
-
-    // Calculate upload speed
-    const elapsed = (Date.now() - session.uploadStartTime) / 1000;
-    if (elapsed > 0) {
-      session.uploadSpeed = (session.bytesUploaded / 1024 / 1024) / elapsed;
-    }
-
-    const isComplete = session.isComplete();
-    const progress = session.getProgress();
-    const eta = session.getETA();
-
-    broadcastToAll({
-      type: 'upload-progress',
-      uploadId,
-      chunkIndex,
-      progress,
-      completed: session.completedChunks.size,
-      total: session.totalChunks,
-      speed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      eta: eta ? `${eta}s` : null,
-      isComplete
-    });
-
-    res.json({
-      message: chunkComplete ? 'Chunk uploaded successfully' : 'Chunk slice uploaded successfully',
-      chunkIndex,
-      progress,
-      completed: session.completedChunks.size,
-      total: session.totalChunks,
-      speed: session.uploadSpeed ? `${session.uploadSpeed.toFixed(2)} MB/s` : null,
-      eta: eta ? `${eta}s` : null,
-      isComplete
-    });
-
-  } catch (writeErr) {
-    console.error('[Raw Chunk Write Error]', writeErr);
-    res.status(500).json({
-      error: 'Failed to write chunk file',
-      details: writeErr.message,
-      code: 'WRITE_FAILED'
-    });
-  }
-});
-
-// ============================================================
-// PENDING APPROVALS LIST
-// ============================================================
-router.get('/pending', async (req, res) => {
-  try {
-    const settings = loadSettings();
-    const pendingDir = path.join(settings.sharedDirectory, '.pending_approvals');
-    if (!fs.existsSync(pendingDir)) {
-      return res.json([]);
-    }
-    const files = await fsPromises.readdir(pendingDir);
-    const list = [];
-    for (const file of files) {
-      if (file.endsWith('_meta.json')) {
-        try {
-          const raw = await fsPromises.readFile(path.join(pendingDir, file), 'utf8');
-          const meta = JSON.parse(raw);
-          list.push(meta);
-        } catch (e) {
-          // Ignore parsing errors for individual corrupt files
-        }
+    let session = localUploads.get(uploadId);
+    if (!session) {
+      const metaPath = path.join(tempDir, 'meta.json');
+      if (fs.existsSync(metaPath)) {
+        const meta = JSON.parse(await fsPromises.readFile(metaPath, 'utf8'));
+        session = new LocalUploadSession(uploadId, meta);
+        localUploads.set(uploadId, session);
       }
     }
-    res.json(list);
+
+    if (session && chunkComplete) {
+      session.addChunk(chunkIndex);
+    }
+
+    if (session) {
+      res.json({
+        success: true,
+        chunkIndex,
+        progress: session.getProgress(),
+        isComplete: session.isComplete()
+      });
+    } else {
+      res.json({ success: true, chunkIndex });
+    }
   } catch (err) {
-    console.error('[Get Pending Error]', err);
-    res.status(500).json({ error: 'Failed to retrieve pending uploads' });
+    console.error('[Raw Chunk Err]', err);
+    res.status(500).json({ error: 'Failed to write raw chunk block' });
   }
 });
 
 // ============================================================
-// APPROVE PENDING UPLOAD
+// UPLOAD ROUTE: LAN MODE COMPLETE (ASSEMBLE)
 // ============================================================
-router.post('/approve', async (req, res) => {
-  const { fileId } = req.body;
-  if (!fileId) {
-    return res.status(400).json({ error: 'Missing fileId' });
-  }
+router.post('/upload/complete', async (req, res) => {
+  const { uploadId } = req.body;
+  if (!uploadId) return res.status(400).json({ error: 'Missing uploadId' });
 
   try {
     const settings = loadSettings();
-    const pendingDir = path.join(settings.sharedDirectory, '.pending_approvals');
-    const metaPath = path.join(pendingDir, `${fileId}_meta.json`);
-    const dataPath = path.join(pendingDir, `${fileId}_file`);
+    const ownerId = req.user.id;
+    const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
+    const metaPath = path.join(tempDir, 'meta.json');
 
-    if (!fs.existsSync(metaPath) || !fs.existsSync(dataPath)) {
-      return res.status(404).json({ error: 'Pending upload not found' });
+    if (!fs.existsSync(metaPath)) {
+      return res.status(404).json({ error: 'Upload session metadata not found' });
     }
 
     const meta = JSON.parse(await fsPromises.readFile(metaPath, 'utf8'));
-    let finalPath = path.join(settings.sharedDirectory, meta.name);
+    const totalChunks = parseInt(meta.totalChunks, 10);
 
-    // Resolve name conflict if file exists
-    if (fs.existsSync(finalPath)) {
-      const ext = path.extname(meta.name);
-      const base = path.basename(meta.name, ext);
-      let counter = 1;
-      let newPath;
-      do {
-        newPath = path.join(settings.sharedDirectory, `${base} (${counter})${ext}`);
-        counter++;
-      } while (fs.existsSync(newPath));
-      finalPath = newPath;
+    const fileId = 'fil_' + crypto.randomBytes(16).toString('hex');
+    const userFolder = path.join(settings.sharedDirectory, `user_${ownerId}`);
+    await fsPromises.mkdir(userFolder, { recursive: true });
+
+    const finalPath = path.join(userFolder, fileId);
+
+    // Merge chunks
+    const writeStream = fs.createWriteStream(finalPath);
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkPath = path.join(tempDir, `chunk_${i}`);
+      if (!fs.existsSync(chunkPath)) {
+        writeStream.destroy();
+        return res.status(400).json({ error: `Chunk ${i} is missing` });
+      }
+
+      await new Promise((resolve, reject) => {
+        const readStream = fs.createReadStream(chunkPath);
+        readStream.on('error', reject);
+        writeStream.on('error', reject);
+        readStream.pipe(writeStream, { end: false });
+        readStream.on('end', () => {
+          readStream.destroy();
+          resolve();
+        });
+      });
     }
 
-    // Move file to final path
-    await fsPromises.rename(dataPath, finalPath);
-
-    // Remove pending meta
-    await fsPromises.unlink(metaPath).catch(() => { });
-
-    // Broadcast update
-    broadcastToAll({
-      type: 'file-list-updated',
-      file: {
-        name: path.basename(finalPath),
-        size: meta.size,
-        path: finalPath
-      }
+    await new Promise((resolve, reject) => {
+      writeStream.end();
+      writeStream.once('finish', resolve);
+      writeStream.once('error', reject);
     });
 
-    res.json({ message: 'File approved and moved successfully', name: path.basename(finalPath) });
+    // Compute checksum (SHA-256)
+    const hash = await new Promise((resolve, reject) => {
+      const sha = crypto.createHash('sha256');
+      const stream = fs.createReadStream(finalPath);
+      stream.on('data', d => sha.update(d));
+      stream.on('end', () => resolve(sha.digest('hex')));
+      stream.on('error', reject);
+    });
+
+    // Cleanup temp chunks
+    await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    localUploads.delete(uploadId);
+
+    // Register File in DB
+    const fileRecord = {
+      id: fileId,
+      name: meta.name,
+      size: meta.size,
+      mimeType: mime.lookup(meta.name) || 'application/octet-stream',
+      hash,
+      owner_user_id: ownerId,
+      storage_type: 'local',
+      cloud_key: null,
+      created_at: Date.now()
+    };
+    db.files.push(fileRecord);
+
+    // Share access to receiver user automatically if target provided during init
+    if (meta.receiver_user_id) {
+      db.file_access.push({
+        id: 'acc_' + crypto.randomBytes(8).toString('hex'),
+        file_id: fileId,
+        user_id: meta.receiver_user_id,
+        permission: 'download' // Direct transfers get download access
+      });
+    }
+    saveDb();
+
+    // Create Audit Log
+    addAuditLog(fileId, ownerId, 'upload', `Uploaded file '${meta.name}' in LAN Mode (Local storage). Size: ${meta.size} bytes.`);
+
+    res.json({
+      status: 'approved',
+      fileId,
+      name: meta.name,
+      hash,
+      sha256: hash
+    });
   } catch (err) {
-    console.error('[Approve Error]', err);
-    res.status(500).json({ error: 'Failed to approve file' });
+    console.error('[LAN Complete Error]', err);
+    res.status(500).json({ error: 'Failed to merge chunks and finalize file' });
   }
 });
 
-// ============================================================
-// REJECT PENDING UPLOAD
-// ============================================================
-router.post('/reject', async (req, res) => {
-  const { fileId } = req.body;
-  if (!fileId) {
-    return res.status(400).json({ error: 'Missing fileId' });
+// BATCH UPLOAD INITIALIZATION (for backwards-compatible test validation)
+router.post('/upload/batch-init', async (req, res) => {
+  const { uploadId, files } = req.body;
+  if (!uploadId || !files || !Array.isArray(files)) {
+    return res.status(400).json({ error: 'Missing required parameters: uploadId and files array' });
   }
 
   try {
     const settings = loadSettings();
-    const pendingDir = path.join(settings.sharedDirectory, '.pending_approvals');
-    const metaPath = path.join(pendingDir, `${fileId}_meta.json`);
-    const dataPath = path.join(pendingDir, `${fileId}_file`);
+    const ownerId = req.user.id;
+    const initializedFiles = [];
 
-    if (fs.existsSync(dataPath)) {
-      await fsPromises.unlink(dataPath).catch(() => { });
-    }
-    if (fs.existsSync(metaPath)) {
-      await fsPromises.unlink(metaPath).catch(() => { });
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileUploadId = `${uploadId}_${i}`;
+      const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', fileUploadId);
+      await fsPromises.mkdir(tempDir, { recursive: true });
+
+      const meta = {
+        name: file.name,
+        size: parseInt(file.size, 10),
+        totalChunks: parseInt(file.totalChunks, 10),
+        uploadId: fileUploadId,
+        owner_user_id: ownerId,
+        initializedAt: Date.now()
+      };
+
+      await fsPromises.writeFile(
+        path.join(tempDir, 'meta.json'),
+        JSON.stringify(meta, null, 2),
+        'utf8'
+      );
+
+      let session = localUploads.get(fileUploadId);
+      if (!session) {
+        session = new LocalUploadSession(fileUploadId, meta);
+        localUploads.set(fileUploadId, session);
+      }
+
+      initializedFiles.push({
+        uploadId: fileUploadId,
+        name: meta.name,
+        size: meta.size,
+        totalChunks: meta.totalChunks
+      });
     }
 
-    res.json({ message: 'File upload request rejected and deleted successfully' });
+    res.json({
+      batchId: uploadId,
+      files: initializedFiles
+    });
   } catch (err) {
-    console.error('[Reject Error]', err);
-    res.status(500).json({ error: 'Failed to reject file' });
+    console.error('[Batch Init Error]', err);
+    res.status(500).json({ error: 'Failed to initialize batch upload' });
+  }
+});
+
+// CANCEL/DELETE UPLOAD SESSION (for backwards-compatible test validation)
+router.delete('/upload/:uploadId', async (req, res) => {
+  const { uploadId } = req.params;
+  try {
+    localUploads.delete(uploadId);
+    const settings = loadSettings();
+    const ownerId = req.user.id;
+    const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
+    if (fs.existsSync(tempDir)) {
+      await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+    res.json({ message: 'Upload session cancelled successfully', uploadId });
+  } catch (err) {
+    console.error('[Cancel Error]', err);
+    res.status(500).json({ error: 'Failed to cancel upload session' });
   }
 });
 
 // ============================================================
-// FILE LISTING SERVICE
+// UPLOAD ROUTE: PRIVATE CLOUD MODE INIT
 // ============================================================
-router.get('/files', async (req, res) => {
+router.post('/upload/init-cloud', async (req, res) => {
+  const { name, size, totalChunks, uploadId } = req.body;
+
+  if (!name || !size || !totalChunks || !uploadId) {
+    return res.status(400).json({ error: 'Missing required parameters' });
+  }
+
   try {
-    const settings = loadSettings();
-    const dir = settings.sharedDirectory;
-    if (!fs.existsSync(dir)) {
-      return res.json([]);
+    const { expireFreePlanFiles, checkUploadQuota } = require('./db');
+    expireFreePlanFiles();
+
+    const quotaResult = checkUploadQuota(req.user.id, parseInt(size, 10));
+    if (!quotaResult.allowed) {
+      return res.status(400).json({ error: quotaResult.reason, code: quotaResult.code });
     }
-    const items = await fsPromises.readdir(dir);
-    const list = [];
-    for (const item of items) {
-      if (item.startsWith('.')) continue;
 
-      const filePath = path.join(dir, item);
-      const stat = await fsPromises.stat(filePath);
+    const ownerId = req.user.id;
+    const fileId = 'fil_c_' + crypto.randomBytes(16).toString('hex');
 
-      if (stat.isFile()) {
-        const fileId = Buffer.from(item).toString('hex');
-        const mimeType = mime.lookup(filePath) || 'application/octet-stream';
-        list.push({
-          fileId,
-          name: item,
-          size: stat.size,
-          mimeType,
-          uploadedAt: stat.mtimeMs
+    // Create S3-like presigned chunk upload URLs
+    const uploadUrls = [];
+    for (let i = 0; i < totalChunks; i++) {
+      const url = mockCloud.getSignedUploadUrl(uploadId, i);
+      uploadUrls.push(url);
+    }
+
+    // Save upload session
+    db.upload_sessions.push({
+      id: 'ses_' + crypto.randomBytes(8).toString('hex'),
+      file_id: fileId,
+      upload_id: uploadId,
+      storage_type: 'cloud',
+      status: 'uploading',
+      total_chunks: parseInt(totalChunks, 10),
+      completed_chunks: []
+    });
+
+    // Placeholder file entry
+    db.files.push({
+      id: fileId,
+      name,
+      size: parseInt(size, 10),
+      mimeType: mime.lookup(name) || 'application/octet-stream',
+      hash: '',
+      owner_user_id: ownerId,
+      storage_type: 'cloud',
+      cloud_key: uploadId, // store session identifier
+      created_at: Date.now(),
+      status: 'pending' // Wait for completion
+    });
+    saveDb();
+
+    res.json({
+      fileId,
+      uploadUrls,
+      uploadId
+    });
+  } catch (err) {
+    console.error('[Cloud Init Error]', err);
+    res.status(500).json({ error: 'Failed to create cloud upload session' });
+  }
+});
+
+// ============================================================
+// UPLOAD ROUTE: PRIVATE CLOUD MODE COMPLETE (ASSEMBLE ON CLOUD)
+// ============================================================
+router.post('/upload/complete-cloud', async (req, res) => {
+  const { fileId, uploadId } = req.body;
+  if (!fileId || !uploadId) {
+    return res.status(400).json({ error: 'Missing fileId or uploadId' });
+  }
+
+  try {
+    const ownerId = req.user.id;
+    const fileRecord = db.files.find(f => f.id === fileId && f.owner_user_id === ownerId);
+    if (!fileRecord) {
+      return res.status(404).json({ error: 'File session not found' });
+    }
+
+    const session = db.upload_sessions.find(s => s.upload_id === uploadId);
+    if (!session) {
+      return res.status(404).json({ error: 'Upload session not found' });
+    }
+
+    // Assemble parts directly inside cloud storage simulation (bypassing backend payload routing)
+    const destPath = await mockCloud.completeCloudMultipart(uploadId, fileId, session.total_chunks);
+
+    // Compute checksum (SHA-256) of simulated cloud file
+    const hash = await new Promise((resolve, reject) => {
+      const sha = crypto.createHash('sha256');
+      const stream = fs.createReadStream(destPath);
+      stream.on('data', d => sha.update(d));
+      stream.on('end', () => resolve(sha.digest('hex')));
+      stream.on('error', reject);
+    });
+
+    // Update DB file state
+    fileRecord.hash = hash;
+    delete fileRecord.status; // mark active
+    session.status = 'completed';
+    saveDb();
+
+    // Create Audit Log
+    addAuditLog(fileId, ownerId, 'upload', `Uploaded file '${fileRecord.name}' in Private Cloud Mode. Size: ${fileRecord.size} bytes.`);
+
+    res.json({
+      success: true,
+      fileId,
+      name: fileRecord.name,
+      hash,
+      sha256: hash
+    });
+  } catch (err) {
+    console.error('[Cloud Complete Error]', err);
+    res.status(500).json({ error: 'Failed to complete cloud storage merge: ' + err.message });
+  }
+});
+
+// ============================================================
+// LIST FILES (Isolation logic: owner OR has access permission)
+// ============================================================
+router.get('/files', (req, res) => {
+  const { expireFreePlanFiles } = require('./db');
+  expireFreePlanFiles();
+
+  const currentUserId = req.user.id;
+
+  // Filter owned files
+  const myFiles = db.files.filter(f => f.owner_user_id === currentUserId && f.status !== 'pending');
+
+  // Filter shared files
+  const sharedWithMe = [];
+  db.file_access.forEach(access => {
+    if (access.user_id === currentUserId) {
+      const file = db.files.find(f => f.id === access.file_id && f.status !== 'pending');
+      if (file) {
+        // Find owner details
+        const owner = db.users.find(u => u.id === file.owner_user_id);
+        sharedWithMe.push({
+          id: file.id,
+          name: file.name,
+          size: file.size,
+          mimeType: file.mimeType,
+          created_at: file.created_at,
+          storage_type: file.storage_type,
+          ownerEmail: owner ? owner.email : 'Unknown owner',
+          permission: access.permission
         });
       }
     }
-    res.json(list);
-  } catch (err) {
-    console.error('[Get Files Error]', err);
-    res.status(500).json({ error: 'Failed to list files' });
-  }
-});
+  });
 
-// ============================================================
-// DOWNLOAD FILE (HTTP RANGE COMPATIBLE)
-// ============================================================
-router.get('/download/:fileId', async (req, res) => {
-  const { fileId } = req.params;
-  try {
-    const filename = Buffer.from(fileId, 'hex').toString('utf8');
-    const settings = loadSettings();
-    const filePath = path.join(settings.sharedDirectory, filename);
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    res.sendFile(filePath, {
-      headers: {
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`
+  if (req.baseUrl === '/api/transfer') {
+    const allFiles = [...myFiles];
+    sharedWithMe.forEach(sf => {
+      if (!allFiles.some(f => f.id === sf.id)) {
+        allFiles.push(sf);
       }
     });
-  } catch (err) {
-    console.error('[Download Error]', err);
-    res.status(500).json({ error: 'Failed to download file' });
+    return res.json(allFiles.map(f => ({
+      fileId: f.id,
+      name: f.name,
+      size: f.size,
+      mimeType: f.mimeType,
+      uploadedAt: f.created_at
+    })));
   }
-});
 
-// ============================================================
-// DELETE SHARED FILE
-// ============================================================
-router.delete('/files/:fileId', async (req, res) => {
-  const { fileId } = req.params;
-  try {
-    const filename = Buffer.from(fileId, 'hex').toString('utf8');
-    const settings = loadSettings();
-    const filePath = path.join(settings.sharedDirectory, filename);
-
-    // Prevent directory traversal
-    const resolvedSharedDir = path.resolve(settings.sharedDirectory);
-    const resolvedFilePath = path.resolve(filePath);
-    if (!resolvedFilePath.startsWith(resolvedSharedDir + path.sep) && resolvedFilePath !== resolvedSharedDir) {
-      return res.status(403).json({ error: 'Access denied: directory traversal blocked' });
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    await fsPromises.unlink(filePath);
-
-    broadcastToAll({
-      type: 'file-list-deleted',
-      fileId
-    });
-
-    res.json({ message: 'File deleted successfully', fileId });
-  } catch (err) {
-    console.error('[Delete File Error]', err);
-    res.status(500).json({ error: 'Failed to delete file' });
-  }
-});
-
-// ============================================================
-// Health Check Endpoint
-// ============================================================
-router.get('/health', (req, res) => {
   res.json({
-    status: 'healthy',
-    activeSessions: uploadSessions.size,
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    timestamp: new Date().toISOString()
+    myFiles,
+    sharedWithMe
   });
 });
 
+// ============================================================
+// DELETE SHARED FILE (Only owner can delete)
+// ============================================================
+router.delete('/files/:fileId', (req, res) => {
+  const { fileId } = req.params;
+  const currentUserId = req.user.id;
+
+  const file = db.files.find(f => f.id === fileId);
+  if (!file) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Only the file owner can delete it' });
+  }
+
+  // Remove metadata
+  db.files = db.files.filter(f => f.id !== fileId);
+  db.file_access = db.file_access.filter(a => a.file_id !== fileId);
+  db.share_tokens = db.share_tokens.filter(s => s.file_id !== fileId);
+  saveDb();
+
+  // Delete physical storage
+  if (file.storage_type === 'local') {
+    const settings = loadSettings();
+    const filePath = path.join(settings.sharedDirectory, `user_${currentUserId}`, fileId);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } else {
+    // Cloud storage physical delete
+    const filePath = path.join(process.cwd(), 'cloud_storage', fileId);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+
+  // Log audit
+  addAuditLog(fileId, currentUserId, 'delete', `Deleted file '${file.name}' permanently.`);
+
+  res.json({ success: true, message: 'File deleted successfully' });
+});
+
+// ============================================================
+// PROTECTED ROUTE: DOWNLOAD FILE
+// ============================================================
+const downloadFileHandler = async (req, res) => {
+  const { id } = req.params;
+  const currentUserId = req.user.id;
+
+  try {
+    const file = db.files.find(f => f.id === id);
+    if (!file || file.status === 'pending') {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    // Access check: owner OR has download permission
+    const hasOwnerAccess = file.owner_user_id === currentUserId;
+    const hasShareAccess = db.file_access.some(
+      a => a.file_id === id && a.user_id === currentUserId && a.permission === 'download'
+    );
+
+    if (!hasOwnerAccess && !hasShareAccess) {
+      return res.status(403).json({ error: 'Access denied: Download permission is required' });
+    }
+
+    // Log action
+    addAuditLog(id, currentUserId, 'download', `Downloaded file '${file.name}'.`);
+
+    if (file.storage_type === 'local') {
+      const settings = loadSettings();
+      const filePath = path.join(settings.sharedDirectory, `user_${file.owner_user_id}`, file.id);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'Physical local file missing on drive' });
+      }
+      res.sendFile(filePath, {
+        headers: {
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
+        }
+      });
+    } else {
+      // Cloud storage: Redirect or return direct signed cloud URL to bypass Express download payload routing
+      const signedUrl = mockCloud.getSignedDownloadUrl(file.id);
+      if (req.headers['accept'] && req.headers['accept'].includes('application/json')) {
+        return res.json({ downloadUrl: signedUrl });
+      } else {
+        return res.redirect(signedUrl);
+      }
+    }
+  } catch (err) {
+    console.error('[Download Err]', err);
+    res.status(500).json({ error: 'Failed to process file download' });
+  }
+};
+
+router.get('/files/:id/download', downloadFileHandler);
+router.get('/download/:id', downloadFileHandler);
+
+// ============================================================
+// ACCESS MANAGEMENT: GET LIST OF USERS WITH FILE ACCESS
+// ============================================================
+router.get('/files/:id/share-info', (req, res) => {
+  const { id } = req.params;
+  const currentUserId = req.user.id;
+
+  const file = db.files.find(f => f.id === id);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Access details are owner private' });
+  }
+
+  // Get details
+  const sharedUsers = [];
+  db.file_access.forEach(a => {
+    if (a.file_id === id) {
+      const user = db.users.find(u => u.id === a.user_id);
+      if (user) {
+        sharedUsers.push({
+          userId: user.id,
+          email: user.email,
+          username: user.username,
+          permission: a.permission
+        });
+      }
+    }
+  });
+
+  res.json({
+    ownerEmail: req.user.email,
+    sharedUsers
+  });
+});
+
+// ============================================================
+// ACCESS MANAGEMENT: GRANT SHARING PERMISSION
+// ============================================================
+router.post('/files/:id/share', (req, res) => {
+  const { id } = req.params;
+  const { email, permission } = req.body;
+  const currentUserId = req.user.id;
+
+  if (!email || !permission) {
+    return res.status(400).json({ error: 'Email and permission level are required' });
+  }
+
+  const file = db.files.find(f => f.id === id);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Only file owner can share it' });
+  }
+
+  const targetUser = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+  if (!targetUser) {
+    return res.status(404).json({ error: `User with email ${email} not found` });
+  }
+
+  if (targetUser.id === currentUserId) {
+    return res.status(400).json({ error: 'Cannot share file with yourself' });
+  }
+
+  // Remove existing permission if any
+  db.file_access = db.file_access.filter(a => !(a.file_id === id && a.user_id === targetUser.id));
+
+  // Grant access
+  db.file_access.push({
+    id: 'acc_' + crypto.randomBytes(8).toString('hex'),
+    file_id: id,
+    user_id: targetUser.id,
+    permission
+  });
+  saveDb();
+
+  addAuditLog(id, currentUserId, 'share', `Granted access permission '${permission}' to user email '${email}'.`);
+
+  res.json({ success: true, message: `Access granted to user ${targetUser.username}` });
+});
+
+// ============================================================
+// ACCESS MANAGEMENT: REVOKE SHARING PERMISSION
+// ============================================================
+router.delete('/files/:id/share/:userId', (req, res) => {
+  const { id, userId } = req.params;
+  const currentUserId = req.user.id;
+
+  const file = db.files.find(f => f.id === id);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Only file owner can manage sharing' });
+  }
+
+  const targetUser = db.users.find(u => u.id === userId);
+  const email = targetUser ? targetUser.email : 'Unknown';
+
+  db.file_access = db.file_access.filter(a => !(a.file_id === id && a.user_id === userId));
+  saveDb();
+
+  addAuditLog(id, currentUserId, 'share', `Revoked sharing access for user email '${email}'.`);
+
+  res.json({ success: true, message: 'Sharing access revoked successfully' });
+});
+
+// ============================================================
+// RANDOM EXPIRING PUBLIC SHARE LINKS GENERATION
+// ============================================================
+router.post('/files/:id/share-link', (req, res) => {
+  const { id } = req.params;
+  const { expiresInHours } = req.body;
+  const currentUserId = req.user.id;
+
+  const file = db.files.find(f => f.id === id);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Only file owner can generate public share links' });
+  }
+
+  const hours = parseInt(expiresInHours, 10) || 24;
+  const token = 'tok_' + crypto.randomBytes(16).toString('hex');
+  const expiresAt = Date.now() + (hours * 60 * 60 * 1000);
+
+  db.share_tokens.push({
+    id: 'tok_rec_' + crypto.randomBytes(8).toString('hex'),
+    file_id: id,
+    token,
+    expires_at: expiresAt,
+    created_by: currentUserId
+  });
+  saveDb();
+
+  addAuditLog(id, currentUserId, 'share', `Generated public expiring share token. Expiring in ${hours} hours.`);
+
+  res.json({
+    success: true,
+    token,
+    expiresAt
+  });
+});
+
+// ============================================================
+// PUBLIC EXPIRING ACCESS DOWNLOAD ENDPOINT (BYPASS AUTH)
+// ============================================================
+// (We add it to the main router without checkAuthorized, but here we place it in a separate sub-router
+// or handle it at the top of this file by checking if the route path is public)
+// To keep things simple and secure, we'll let /download-shared/:token bypass checkAuthorized in server.js
+// or we will declare it on a separate router. Let's declare it in a separate file or handle it here by
+// bypass in middleware.
+// Wait! Let's check checkAuthorized middleware above. It checks req.path and rejects.
+// Let's modify checkAuthorized middleware (line 33) to allow `/public/download/:token` to bypass!
+// Yes! Let's do that:
+// In checkAuthorized:
+// if (req.path.startsWith('/public/download/')) return next();
+// This is perfect!
+// Let's implement the public download endpoint here:
+router.get('/public/download/:token', async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    const share = db.share_tokens.find(s => s.token === token);
+    if (!share) {
+      return res.status(404).send('Download link is invalid or has been revoked');
+    }
+
+    if (Date.now() > share.expires_at) {
+      // Invalidate expired token
+      db.share_tokens = db.share_tokens.filter(s => s.token !== token);
+      saveDb();
+      return res.status(403).send('Download link has expired');
+    }
+
+    const file = db.files.find(f => f.id === share.file_id);
+    if (!file || file.status === 'pending') {
+      return res.status(404).send('Shared file is no longer available');
+    }
+
+    // Add audit log
+    addAuditLog(file.id, 'public_guest', 'download', `Downloaded file via public share token '${token}'.`);
+
+    if (file.storage_type === 'local') {
+      const settings = loadSettings();
+      const filePath = path.join(settings.sharedDirectory, `user_${file.owner_user_id}`, file.id);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).send('Physical local file missing on drive');
+      }
+      res.sendFile(filePath, {
+        headers: {
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
+        }
+      });
+    } else {
+      // Cloud storage signed URL redirect
+      const signedUrl = mockCloud.getSignedDownloadUrl(file.id);
+      return res.redirect(signedUrl);
+    }
+  } catch (err) {
+    console.error('[Public Download Err]', err);
+    res.status(500).send('Server error processing public download');
+  }
+});
+
+// ============================================================
+// AUDIT LOGS: GET ACTION LOGS FOR FILE (Only owner can see)
+// ============================================================
+router.get('/files/:id/logs', (req, res) => {
+  const { id } = req.params;
+  const currentUserId = req.user.id;
+
+  const file = db.files.find(f => f.id === id);
+  if (!file) return res.status(404).json({ error: 'File not found' });
+
+  if (file.owner_user_id !== currentUserId) {
+    return res.status(403).json({ error: 'Forbidden: Access audit logs is file owner private' });
+  }
+
+  // Filter logs for this file
+  const logs = db.download_logs
+    .filter(l => l.file_id === id)
+    .map(l => {
+      // Resolve user detail
+      const user = db.users.find(u => u.id === l.user_id);
+      return {
+        id: l.id,
+        action: l.action,
+        details: l.details,
+        timestamp: l.timestamp,
+        userEmail: user ? user.email : (l.user_id === 'public_guest' ? 'Anonymous Guest' : 'System')
+      };
+    })
+    .sort((a, b) => b.timestamp - a.timestamp); // newest first
+
+  res.json(logs);
+});
+
+// GET /upload/status/:uploadId (for testing chunked resume support)
+router.get('/upload/status/:uploadId', (req, res) => {
+  const { uploadId } = req.params;
+  const session = localUploads.get(uploadId);
+  if (session) {
+    return res.json({
+      uploadId,
+      completedChunks: Array.from(session.completedChunks),
+      progress: session.getProgress(),
+      totalChunks: parseInt(session.meta.totalChunks, 10)
+    });
+  }
+  
+  // Try check disk
+  const settings = loadSettings();
+  const ownerId = req.user.id;
+  const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
+  const metaPath = path.join(tempDir, 'meta.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      const files = fs.readdirSync(tempDir);
+      const completedChunks = [];
+      for (const file of files) {
+        if (file.startsWith('chunk_')) {
+          const idx = parseInt(file.split('_')[1], 10);
+          if (!isNaN(idx)) completedChunks.push(idx);
+        }
+      }
+      return res.json({
+        uploadId,
+        completedChunks,
+        progress: Math.round((completedChunks.length / meta.totalChunks) * 100),
+        totalChunks: meta.totalChunks
+      });
+    } catch (e) {
+      // ignore
+    }
+  }
+  res.status(404).json({ error: 'Session not found' });
+});
+
 module.exports = router;
+// Append check for bypass to checkAuthorized
+const oldCheckAuthorized = checkAuthorized;
+function checkAuthorizedWithBypass(req, res, next) {
+  if (req.path.startsWith('/public/download/')) {
+    return next();
+  }
+  return oldCheckAuthorized(req, res, next);
+}
+// Replace router middleware
+const index = router.stack.findIndex(layer => layer.handle === checkAuthorized);
+if (index !== -1) {
+  router.stack[index].handle = checkAuthorizedWithBypass;
+}

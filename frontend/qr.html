@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AeroSync - QR Connection</title>
+    <!-- Google Fonts for Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #09090e;
+            --card-bg: rgba(18, 18, 29, 0.7);
+            --border-glow: rgba(99, 102, 241, 0.2);
+            --accent: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.4);
+            --accent-success: #10b981;
+            --accent-success-glow: rgba(16, 185, 129, 0.4);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(circle at 50% 50%, #15102a 0%, var(--bg-dark) 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow-x: hidden;
+            color: var(--text-main);
+        }
+
+        /* Abstract ambient lights */
+        .ambient-light {
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 70%);
+            top: -100px;
+            left: -100px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .ambient-light-right {
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, transparent 70%);
+            bottom: -150px;
+            right: -100px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            position: relative;
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 28px;
+            padding: 45px 40px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                        0 0 40px rgba(99, 102, 241, 0.1);
+            text-align: center;
+            z-index: 1;
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 30px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a78bfa 0%, #6366f1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            margin-top: 8px;
+            font-size: 14px;
+        }
+
+        .qr-container {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 25px;
+            margin: 25px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 250px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+        }
+
+        .qr-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 12px;
+            border: 4px solid white;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            animation: scaleIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0.85); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .qr-container .placeholder {
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .info {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin: 20px 0;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 13.5px;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-item .label {
+            color: var(--text-muted);
+        }
+
+        .info-item .value {
+            color: var(--text-main);
+            font-weight: 600;
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .otp-display {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: #e0e7ff;
+            padding: 14px 20px;
+            border-radius: 16px;
+            font-size: 34px;
+            font-weight: 800;
+            letter-spacing: 6px;
+            margin: 20px 0;
+            font-family: 'Outfit', monospace;
+            text-shadow: 0 0 15px var(--accent-glow);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 25px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .btn {
+            padding: 12px 22px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: #4f46e5;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: var(--accent-success);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.5);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .error {
+            display: none;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin: 12px 0;
+            font-size: 13.5px;
+            text-align: left;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+
+        .success {
+            display: none;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #a7f3d0;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin: 12px 0;
+            font-size: 13.5px;
+        }
+
+        .refresh-timer {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 15px;
+            font-weight: 500;
+        }
+
+        @media (max-width: 480px) {
+            .container { padding: 30px 20px; }
+            .otp-display { font-size: 28px; letter-spacing: 4px; }
+            .actions .btn { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-light"></div>
+    <div class="ambient-light-right"></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📱 Scan to Connect</h1>
+            <p>Scan this QR code with your AeroSync mobile app</p>
+        </div>
+
+        <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
+        
+        <div class="qr-container">
+            <div id="qrPlaceholder" class="placeholder">Loading QR Code...</div>
+            <img id="qrImage" style="display:none;" alt="QR Code" />
+        </div>
+
+        <div class="otp-display" id="otpDisplay">------</div>
+
+        <div class="info">
+            <div class="info-item">
+                <span class="label">🌐 Server URL</span>
+                <span class="value" id="serverUrl">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="label">💻 Device</span>
+                <span class="value" id="deviceName">Loading...</span>
+            </div>
+            <div class="info-item">
+                <span class="label">⏱️ OTP Expires</span>
+                <span class="value" id="expiryTime">5 minutes</span>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" onclick="refreshQR()">
+                🔄 Refresh
+            </button>
+            <button class="btn btn-success" onclick="downloadQR()">
+                ⬇️ Download
+            </button>
+            <button class="btn btn-secondary" onclick="copyURL()">
+                📋 Copy URL
+            </button>
+        </div>
+
+        <div class="refresh-timer" id="timerDisplay">Auto-refresh in 60s</div>
+    </div>
+
+    <script>
+        let currentQRData = null;
+        let timerInterval = null;
+        let countdown = 60;
+
+        // Auto-refresh every 60 seconds
+        async function fetchQR() {
+            try {
+                const response = await fetch('/api/qr/connection');
+                if (!response.ok) throw new Error('Failed to fetch QR code');
+                
+                const data = await response.json();
+                currentQRData = data;
+                
+                // Update UI
+                document.getElementById('qrImage').src = data.qrCode;
+                document.getElementById('qrImage').style.display = 'block';
+                document.getElementById('qrPlaceholder').style.display = 'none';
+                
+                document.getElementById('otpDisplay').textContent = data.otp || '------';
+                document.getElementById('serverUrl').textContent = data.connectionData.server.url || 'localhost';
+                document.getElementById('deviceName').textContent = data.deviceName || 'Unknown';
+                
+                document.getElementById('error').style.display = 'none';
+                document.getElementById('success').style.display = 'none';
+                
+                // Reset timer
+                countdown = 60;
+                document.getElementById('timerDisplay').textContent = `Auto-refresh in ${countdown}s`;
+                
+            } catch (err) {
+                console.error('QR Fetch Error:', err);
+                document.getElementById('error').textContent = 'Failed to load QR code: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+
+        function refreshQR() {
+            document.getElementById('qrPlaceholder').style.display = 'block';
+            document.getElementById('qrPlaceholder').textContent = 'Refreshing...';
+            document.getElementById('qrImage').style.display = 'none';
+            fetchQR();
+        }
+
+        function downloadQR() {
+            if (!currentQRData) {
+                alert('Please wait for QR code to load');
+                return;
+            }
+            
+            // Open download link
+            const link = document.createElement('a');
+            link.href = currentQRData.qrCode;
+            link.download = 'aerosync_qr.png';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function copyURL() {
+            if (!currentQRData) {
+                alert('Please wait for QR code to load');
+                return;
+            }
+            
+            navigator.clipboard.writeText(currentQRData.connectionURL).then(() => {
+                document.getElementById('success').textContent = '✅ Connection URL copied to clipboard!';
+                document.getElementById('success').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('success').style.display = 'none';
+                }, 3000);
+            }).catch(() => {
+                // Fallback
+                const textArea = document.createElement('textarea');
+                textArea.value = currentQRData.connectionURL;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Connection URL copied to clipboard!');
+            });
+        }
+
+        // Start auto-refresh timer
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            
+            timerInterval = setInterval(() => {
+                countdown--;
+                if (countdown <= 0) {
+                    refreshQR();
+                    countdown = 60;
+                }
+                document.getElementById('timerDisplay').textContent = `Auto-refresh in ${countdown}s`;
+            }, 1000);
+        }
+
+        // Initialize
+        fetchQR();
+        startTimer();
+
+        // Handle visibility change to refresh when tab becomes active
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                refreshQR();
+            }
+        });
+
+        console.log('📱 AeroSync QR Code page loaded');
+        console.log('🔄 Auto-refresh every 60 seconds');
+    </script>
+</body>
+</html>

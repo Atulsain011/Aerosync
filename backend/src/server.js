@@ -4,10 +4,15 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
+const dbModule = require('./db');
 const { loadSettings } = require('./settings');
 const { initSignaling } = require('./signaling');
+const authRouter = require('./auth').router;
+const mockCloudRouter = require('./mockCloud').router;
 const transferRouter = require('./transfer');
 const { router: settingsRouter } = require('./settings');
+const { router: billingRouter } = require('./billing');
+const qrRouter = require('./qrRouter');
 const { getLocalIpAddresses } = require('./utils/network');
 
 /**
@@ -15,6 +20,7 @@ const { getLocalIpAddresses } = require('./utils/network');
  * Configures REST API routes, static UI assets, and the WebSocket server.
  */
 function startServer() {
+  dbModule.initDb();
   const settings = loadSettings();
   const app = express();
 
@@ -22,7 +28,7 @@ function startServer() {
   app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Id', 'x-upload-id', 'x-chunk-index']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Client-Id', 'x-upload-id', 'x-chunk-index', 'x-session-token']
   }));
 
   // Parse HTTP payloads
@@ -36,8 +42,13 @@ function startServer() {
   }
 
   // Connect backend sub-routers
+  app.use('/api/auth', authRouter);
+  app.use('/api/billing', billingRouter);
+  app.use('/api/mock-cloud', mockCloudRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api', transferRouter);
   app.use('/api/transfer', transferRouter);
+  app.use('/api/qr', qrRouter);
 
   // Default API ping response
   app.get('/api', (req, res) => {

@@ -9,3 +9,13 @@ shared_files/*
 dist/
 build/
 .cache/
+
+database.json
+cloud_storage/
+backend/cloud_storage/
+uploads/
+*.log
+
+*.save
+*.bak
+*~

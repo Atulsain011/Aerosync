@@ -1,6 +1,7 @@
 const ws = require('ws');
 const { loadSettings } = require('./settings');
 const { getLocalIpAddresses, isLocalAddress } = require('./utils/network');
+const { db, saveDb } = require('./db');
 
 // Active peer connections registry: clientId -> client state metadata
 const clients = new Map();
@@ -111,15 +112,33 @@ function initSignaling(server) {
               }
             }
 
+            // Ensure guest user exists in database for isolated file spaces mapping
+            if (socket.authorized) {
+              const uId = socket.isHost ? 'host' : 'guest_' + clientId;
+              let guestUser = db.users.find(u => u.id === uId);
+              if (!guestUser) {
+                guestUser = {
+                  id: uId,
+                  email: socket.isHost ? 'host@aerosync.local' : `${clientId}@aerosync.local`,
+                  username: socket.isHost ? 'Host System' : (username || 'Guest Peer'),
+                  passwordHash: ''
+                };
+                db.users.push(guestUser);
+                saveDb();
+              }
+            }
+
             // Remove previous socket if same client re-connects
             if (clients.has(clientId)) {
               const oldSocket = clients.get(clientId).socket;
-              try {
-                oldSocket.close();
-              } catch (e) {
-                // ignore
+              if (oldSocket !== socket) {
+                try {
+                  oldSocket.close();
+                } catch (e) {
+                  // ignore
+                }
+                clients.delete(clientId);
               }
-              clients.delete(clientId);
             }
 
             currentClientId = clientId;
@@ -316,7 +335,11 @@ function initSignaling(server) {
   return wss;
 }
 
-module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP };
+function getActiveOTP() {
+  return activeOTP;
+}
+
+module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP, getActiveOTP };
 // Add TURN configuration
 const RTC_CONFIG = {
   iceServers: [

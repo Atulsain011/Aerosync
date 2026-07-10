@@ -3,7 +3,6 @@ function generateUUID() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  // RFC4122 version 4 compliant fallback
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     const r = Math.random() * 16 | 0;
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -14,18 +13,10 @@ function generateUUID() {
 // Safe localStorage wrapper to prevent SecurityErrors in strict browsers
 const safeLocalStorage = {
   getItem(key) {
-    try {
-      return localStorage.getItem(key);
-    } catch (e) {
-      return null;
-    }
+    try { return localStorage.getItem(key); } catch (e) { return null; }
   },
   setItem(key, value) {
-    try {
-      localStorage.setItem(key, value);
-    } catch (e) {
-      // ignore
-    }
+    try { localStorage.setItem(key, value); } catch (e) { }
   }
 };
 
@@ -61,42 +52,64 @@ const state = {
   highestZIndex: 10,
   serverSettings: null,
   
-  // User profile
+  // User profile & Auth
   username: safeLocalStorage.getItem('aerosync_username') || 'Guest User',
   avatar: safeLocalStorage.getItem('aerosync_avatar') || 'monitor',
   theme: safeLocalStorage.getItem('aerosync_theme') || 'aero',
+  sessionToken: safeLocalStorage.getItem('aerosync_session_token') || '',
+  currentUser: null,
   
   // File Listings
-  files: [],
+  myFiles: [],
+  sharedWithMe: [],
+  activeExplorerTab: 'myfiles', // 'myfiles' or 'shared'
   searchQuery: '',
   
   // Network and Peers
   ws: null,
   clientId: generateUUID(),
-  peers: new Map(), // clientId -> peer data
-  peerConnections: new Map(), // clientId -> RTCPeerConnection
-  iceCandidateQueues: new Map(), // clientId -> Array of ICE candidates
+  peers: new Map(),
+  peerConnections: new Map(),
+  iceCandidateQueues: new Map(),
   
   // Active File Transfer Queue
-  transfers: new Map(), // transferId -> transfer tracking object
+  transfers: new Map(),
   
   // Pending WebRTC transfer invite
-  pendingInvite: null
+  pendingInvite: null,
+
+  // Selected file for sharing management
+  activeShareFileId: null
 };
+
+// Helper: Wrapper for fetch adding auth headers
+async function secureFetch(url, options = {}) {
+  options.headers = options.headers || {};
+  if (state.sessionToken) {
+    options.headers['X-Session-Token'] = state.sessionToken;
+  }
+  options.headers['X-Client-Id'] = state.clientId;
+  return fetch(url, options);
+}
 
 // --------------------------------------------------------------------------
 // 2. Window Manager & UI Bootstrapper
 // --------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
-  // Clock update
+  // Extract OTP from URL query parameters if present (for easy phone auto-connection)
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlOtp = urlParams.get('otp');
+  if (urlOtp) {
+    state.otp = urlOtp;
+    // Clean url query parameter from search bar for clean user experience
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   updateClock();
   setInterval(updateClock, 1000);
   
-  // Load settings & files
   initUITheme();
   loadProfileInputs();
-  fetchFiles();
-  fetchServerSettings();
   
   // Set up dragging for windows
   initWindowDragging('window-files', 'title-files-drag');
@@ -105,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initWindowDragging('window-settings', 'title-settings-drag');
   initWindowDragging('window-share', 'title-share-drag');
   initWindowDragging('window-help', 'title-help-drag');
+  initWindowDragging('window-billing', 'title-billing-drag');
   
   // Attach shortcuts listeners
   setupShortcutButton('shortcut-files', 'files');
@@ -112,6 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupShortcutButton('shortcut-radar', 'radar');
   setupShortcutButton('shortcut-settings', 'settings');
   setupShortcutButton('shortcut-help', 'help');
+  setupShortcutButton('shortcut-billing', 'billing');
   
   // Window button action bindings
   setupWindowActionButtons('files');
@@ -120,30 +135,13 @@ document.addEventListener('DOMContentLoaded', () => {
   setupWindowActionButtons('settings');
   setupWindowActionButtons('share');
   setupWindowActionButtons('help');
+  setupWindowActionButtons('billing');
   
-  // Profile save binding
+  // Profile & Config buttons
   document.getElementById('btn-save-profile').addEventListener('click', saveProfileLocal);
   document.getElementById('btn-save-server-config').addEventListener('click', saveServerConfig);
   document.getElementById('btn-refresh-files').addEventListener('click', fetchFiles);
   document.getElementById('btn-clear-transfers').addEventListener('click', clearInactiveTransfers);
-  
-  // Dynamic OTP refresh binding
-  const btnRefreshOtp = document.getElementById('btn-refresh-otp');
-  if (btnRefreshOtp) {
-    btnRefreshOtp.addEventListener('click', () => {
-      if (state.isHost && state.ws && state.ws.readyState === WebSocket.OPEN) {
-        // Animate the button icon
-        const icon = btnRefreshOtp.querySelector('i');
-        if (icon) {
-          icon.classList.add('bi-spin-animate');
-          setTimeout(() => icon.classList.remove('bi-spin-animate'), 600);
-        }
-        state.ws.send(JSON.stringify({ type: 'refresh-otp' }));
-      } else {
-        showToast('Cannot refresh OTP: WebSocket connection not ready.', 'error');
-      }
-    });
-  }
   
   // Search bar input binding
   document.getElementById('input-file-search').addEventListener('input', (e) => {
@@ -151,54 +149,35 @@ document.addEventListener('DOMContentLoaded', () => {
     renderFileList();
   });
   
+  // File explorer tab buttons binding
+  document.getElementById('explorer-tab-myfiles').addEventListener('click', () => {
+    switchExplorerTab('myfiles');
+  });
+  document.getElementById('explorer-tab-shared').addEventListener('click', () => {
+    switchExplorerTab('shared');
+  });
+
   // Setup file input picker
   const fileInput = document.getElementById('input-file-uploader');
   fileInput.addEventListener('change', (e) => {
     handleFileUploads(e.target.files);
-    fileInput.value = ''; // Reset
+    fileInput.value = '';
   });
   
-  // Setup Drag and Drop overlays
   setupDragAndDrop();
-  
-  // OTP Device Authorization Form Submit
-  const submitAuthBtn = document.getElementById('btn-submit-auth');
-  if (submitAuthBtn) {
-    submitAuthBtn.addEventListener('click', () => {
-      const usernameInput = document.getElementById('auth-username');
-      const otpInput = document.getElementById('auth-otp');
-      const name = usernameInput.value.trim();
-      const otp = otpInput.value.trim();
-      
-      if (!name) {
-        const errorEl = document.getElementById('auth-error-msg');
-        errorEl.innerText = 'Please enter a device nickname.';
-        errorEl.style.display = 'block';
-        return;
-      }
-      if (otp.length !== 6 || isNaN(otp)) {
-        const errorEl = document.getElementById('auth-error-msg');
-        errorEl.innerText = 'OTP must be a 6-digit numeric code.';
-        errorEl.style.display = 'block';
-        return;
-      }
-      
-      state.username = name;
-      safeLocalStorage.setItem('aerosync_username', name);
-      const nameInput = document.getElementById('input-username');
-      if (nameInput) nameInput.value = name;
-      
-      sendJoinMessage(otp);
-    });
-  }
-
-  // Start WebSockets
-  initWebSocket();
-  
-  // Initialize profile avatars select grid
+  initStartMenuAndShareHub();
   initAvatarSelector();
 
-  // Dynamic taskbar tab bindings (removes global onclick)
+  // Load and check active user session
+  checkAuthSession();
+
+  // Setup auth screen tab events
+  setupAuthTabs();
+
+  // Setup sharing access and public links button bindings
+  setupSharingControls();
+
+  // Dynamic taskbar tab bindings
   document.querySelectorAll('.taskbar-tabs-scroller .taskbar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       toggleWindow(tab.dataset.window);
@@ -219,11 +198,38 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Load and show initial window states
+  // Set up Start Menu item for billing
+  const startItemBilling = document.getElementById('start-item-billing');
+  if (startItemBilling) {
+    startItemBilling.addEventListener('click', () => {
+      toggleWindow('billing');
+      document.getElementById('start-menu-panel').style.display = 'none';
+    });
+  }
+
+  // Set up transfer mode radio toggle event listener
+  document.querySelectorAll('input[name="transfer-mode-select"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      updateTransferModeUI();
+    });
+  });
+  updateTransferModeUI();
+
+  // Set up upgrade plan buttons
+  const btnUpgradePro = document.getElementById('btn-upgrade-pro');
+  if (btnUpgradePro) {
+    btnUpgradePro.addEventListener('click', () => {
+      handlePlanUpgrade('pro');
+    });
+  }
+  const btnUpgradeBusiness = document.getElementById('btn-upgrade-business');
+  if (btnUpgradeBusiness) {
+    btnUpgradeBusiness.addEventListener('click', () => {
+      handlePlanUpgrade('business');
+    });
+  }
+
   syncWindowStates();
-  
-  // Start Menu & Connection Share Hub bindings
-  initStartMenuAndShareHub();
 });
 
 // Update bottom system tray clock
@@ -234,7 +240,7 @@ function updateClock() {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const ampm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12;
-  hours = hours ? hours : 12; // The hour '0' should be '12'
+  hours = hours ? hours : 12;
   clockEl.innerText = `${hours}:${minutes} ${ampm}`;
 }
 
@@ -262,14 +268,13 @@ function setupWindowActionButtons(windowId) {
     closeWindow(windowId);
   });
   
-  // Focusing on click anywhere inside window
   document.getElementById(`window-${windowId}`).addEventListener('mousedown', () => {
     focusWindow(windowId);
   });
 }
 
 // --------------------------------------------------------------------------
-// 3. Floating Window Dragging Logic (Smooth 60fps)
+// 3. Floating Window Dragging Logic
 // --------------------------------------------------------------------------
 function initWindowDragging(windowId, dragHandleId) {
   const win = document.getElementById(windowId);
@@ -281,18 +286,15 @@ function initWindowDragging(windowId, dragHandleId) {
   handle.ontouchstart = dragTouchStart;
   
   function dragMouseDown(e) {
-    if (e.target.closest('.title-bar-actions')) return; // Ignore drag if clicking action buttons
-    if (state.maximizedWindows[windowId]) return; // Disable drag if maximized
+    if (e.target.closest('.title-bar-actions')) return;
+    if (state.maximizedWindows[windowId]) return;
     
     e = e || window.event;
     e.preventDefault();
-    
     focusWindow(windowId);
     
-    // Get mouse position at startup
     mouseX = e.clientX;
     mouseY = e.clientY;
-    
     win.classList.add('dragging');
     
     document.onmouseup = closeDragElement;
@@ -300,7 +302,7 @@ function initWindowDragging(windowId, dragHandleId) {
   }
   
   function dragTouchStart(e) {
-    if (e.target.closest('.title-bar-actions')) return; // Ignore drag if clicking action buttons
+    if (e.target.closest('.title-bar-actions')) return;
     if (state.maximizedWindows[windowId]) return;
     focusWindow(windowId);
     
@@ -314,7 +316,7 @@ function initWindowDragging(windowId, dragHandleId) {
   }
   
   function touchElementDrag(e) {
-    e.preventDefault(); // Stop mobile browser scrolling/bouncing during drag
+    e.preventDefault();
     const touch = e.touches[0];
     posX = mouseX - touch.clientX;
     posY = mouseY - touch.clientY;
@@ -346,20 +348,17 @@ function initWindowDragging(windowId, dragHandleId) {
     e = e || window.event;
     e.preventDefault();
     
-    // Calculate new cursor coordinates
     posX = mouseX - e.clientX;
     posY = mouseY - e.clientY;
     mouseX = e.clientX;
     mouseY = e.clientY;
     
-    // Set element's new position, capped inside window constraints
     let newTop = win.offsetTop - posY;
     let newLeft = win.offsetLeft - posX;
     
     const desktopHeight = document.getElementById('desktop-area').offsetHeight;
     const desktopWidth = document.getElementById('desktop-area').offsetWidth;
     
-    // Capping bounds so titlebar stays visible
     if (newTop < 0) newTop = 0;
     if (newTop > desktopHeight - 48) newTop = desktopHeight - 48;
     if (newLeft < -win.offsetWidth + 100) newLeft = -win.offsetWidth + 100;
@@ -376,9 +375,7 @@ function initWindowDragging(windowId, dragHandleId) {
   }
 }
 
-// Focus a window and bring it to front
 function focusWindow(windowId) {
-  // On mobile (<= 768px), auto-minimize other windows to prevent overlapping chaos
   if (window.innerWidth <= 768) {
     Object.keys(state.activeWindows).forEach(key => {
       if (key !== windowId && state.activeWindows[key] && !state.minimizedWindows[key]) {
@@ -391,7 +388,6 @@ function focusWindow(windowId) {
     });
   }
 
-  // Restore the target window if it was minimized
   state.minimizedWindows[windowId] = false;
   const win = document.getElementById(`window-${windowId}`);
   if (win) win.classList.add('open');
@@ -399,20 +395,15 @@ function focusWindow(windowId) {
   state.highestZIndex += 1;
   if (win) win.style.zIndex = state.highestZIndex;
   
-  // Remove focus class from all windows
-  document.querySelectorAll('.sys-window').forEach(w => {
-    w.classList.remove('focus-active');
-  });
+  document.querySelectorAll('.sys-window').forEach(w => w.classList.remove('focus-active'));
   if (win) win.classList.add('focus-active');
   state.focusedWindow = windowId;
   
-  // Set taskbar tab active
   document.querySelectorAll('.taskbar-tab').forEach(t => t.classList.remove('active'));
   const tab = document.getElementById(`tab-${windowId}`);
   if (tab) tab.classList.add('active');
 }
 
-// Toggle window open state
 function toggleWindow(windowId) {
   if (!state.activeWindows[windowId]) {
     openWindow(windowId);
@@ -484,7 +475,6 @@ function syncWindowStates() {
   });
 }
 
-// Settings sub-category navigation toggles
 function switchSettingsTab(tabId) {
   document.querySelectorAll('.settings-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelectorAll('.settings-content .settings-section').forEach(sec => sec.classList.remove('active'));
@@ -506,15 +496,11 @@ function changeTheme(themeName) {
   state.theme = themeName;
   safeLocalStorage.setItem('aerosync_theme', themeName);
   
-  // Align setting selection previews
   document.querySelectorAll('.theme-grid .theme-card').forEach(card => card.classList.remove('active'));
   const activeCard = document.getElementById(`theme-card-${themeName}`);
   if (activeCard) activeCard.classList.add('active');
-  
-  showToast(`Theme loaded: ${themeName.charAt(0).toUpperCase() + themeName.slice(1)}`, 'info');
 }
 
-// Avatar grid click selector highlight
 function initAvatarSelector() {
   const selectors = document.querySelectorAll('.avatar-selector');
   selectors.forEach(sel => {
@@ -530,8 +516,380 @@ function initAvatarSelector() {
 }
 
 // --------------------------------------------------------------------------
-// 5. REST Client Integrations
+// 5. SECURITY PORTAL (AUTH MODAL & SESSION CHECKER)
 // --------------------------------------------------------------------------
+function setupAuthTabs() {
+  const tabLogin = document.getElementById('auth-tab-login');
+  const tabRegister = document.getElementById('auth-tab-register');
+  const tabOtp = document.getElementById('auth-tab-otp');
+  
+  const contentLogin = document.getElementById('auth-content-login');
+  const contentRegister = document.getElementById('auth-content-register');
+  const contentOtp = document.getElementById('auth-content-otp');
+  const errorMsg = document.getElementById('auth-error-msg');
+
+  const switchTab = (activeTab, showContent) => {
+    [tabLogin, tabRegister, tabOtp].forEach(btn => btn.classList.remove('active'));
+    [contentLogin, contentRegister, contentOtp].forEach(c => c.style.display = 'none');
+    errorMsg.style.display = 'none';
+    
+    activeTab.classList.add('active');
+    showContent.style.display = 'block';
+  };
+
+  tabLogin.addEventListener('click', () => switchTab(tabLogin, contentLogin));
+  tabRegister.addEventListener('click', () => switchTab(tabRegister, contentRegister));
+  tabOtp.addEventListener('click', () => switchTab(tabOtp, contentOtp));
+
+  // Bind register/login actions
+  document.getElementById('btn-submit-login').addEventListener('click', handleLogin);
+  document.getElementById('btn-submit-register').addEventListener('click', handleRegister);
+
+  // Pre-populate nickname if available
+  const authUsernameInput = document.getElementById('auth-username');
+  if (authUsernameInput && state.username) {
+    authUsernameInput.value = state.username;
+  }
+
+  // Bind OTP verify and connect action
+  const btnSubmitAuth = document.getElementById('btn-submit-auth');
+  if (btnSubmitAuth) {
+    btnSubmitAuth.addEventListener('click', () => {
+      const usernameVal = document.getElementById('auth-username').value.trim();
+      const otpVal = document.getElementById('auth-otp').value.trim();
+      const errorMsg = document.getElementById('auth-error-msg');
+
+      if (!usernameVal || !otpVal) {
+        errorMsg.innerText = 'Nickname and OTP code are required';
+        errorMsg.style.display = 'block';
+        return;
+      }
+
+      if (usernameVal) {
+        state.username = usernameVal;
+        safeLocalStorage.setItem('aerosync_username', usernameVal);
+      }
+
+      errorMsg.style.display = 'none';
+
+      // Send join message via websocket with OTP code
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        state.otp = otpVal;
+        initWebSocket();
+      } else {
+        sendJoinMessage(otpVal);
+      }
+    });
+  }
+}
+
+async function checkAuthSession() {
+  // If localhost, backend auto-authenticates without prompt, but let's sync state
+  try {
+    const res = await secureFetch('/api/auth/session');
+    if (res.ok) {
+      const data = await res.json();
+      state.currentUser = data.user;
+      state.username = data.user.username;
+      
+      const startMenuDevice = document.getElementById('start-menu-device-name');
+      if (startMenuDevice) startMenuDevice.innerText = data.user.username;
+      
+      // Auto-connect websocket signaling
+      initWebSocket();
+      fetchFiles();
+      fetchServerSettings();
+      return;
+    }
+  } catch (err) {
+    console.warn('Session fetch failed:', err);
+  }
+
+  // Not logged in: Show overlay
+  document.getElementById('auth-overlay').style.display = 'flex';
+  initWebSocket(); // Start WebSocket connection so OTP authentication can occur!
+}
+
+async function handleLogin() {
+  const loginInput = document.getElementById('login-username').value;
+  const password = document.getElementById('login-password').value;
+  const errorMsg = document.getElementById('auth-error-msg');
+
+  if (!loginInput || !password) {
+    errorMsg.innerText = 'Please enter credentials';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginInput, password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+
+    state.sessionToken = data.sessionToken;
+    state.currentUser = data.user;
+    state.username = data.user.username;
+    safeLocalStorage.setItem('aerosync_session_token', data.sessionToken);
+
+    document.getElementById('auth-overlay').style.display = 'none';
+    showToast('Logged in successfully', 'success');
+
+    // Reload UI
+    initWebSocket();
+    fetchFiles();
+    fetchServerSettings();
+  } catch (err) {
+    errorMsg.innerText = err.message;
+    errorMsg.style.display = 'block';
+  }
+}
+
+async function handleRegister() {
+  const email = document.getElementById('reg-email').value;
+  const username = document.getElementById('reg-username').value;
+  const password = document.getElementById('reg-password').value;
+  const errorMsg = document.getElementById('auth-error-msg');
+
+  if (!email || !username || !password) {
+    errorMsg.innerText = 'Please fill in all registration fields';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username, password })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Registration failed');
+
+    state.sessionToken = data.sessionToken;
+    state.currentUser = data.user;
+    state.username = data.user.username;
+    safeLocalStorage.setItem('aerosync_session_token', data.sessionToken);
+
+    document.getElementById('auth-overlay').style.display = 'none';
+    showToast('Registered and logged in successfully', 'success');
+
+    // Reload UI
+    initWebSocket();
+    fetchFiles();
+    fetchServerSettings();
+  } catch (err) {
+    errorMsg.innerText = err.message;
+    errorMsg.style.display = 'block';
+  }
+}
+
+// --------------------------------------------------------------------------
+// 6. ACCESS CONTROL & EXPIRING QR LINKS MODALS
+// --------------------------------------------------------------------------
+function setupSharingControls() {
+  // Share Access Modal elements
+  document.getElementById('btn-grant-access').addEventListener('click', grantFileAccess);
+  document.getElementById('btn-gen-pub-link').addEventListener('click', generatePublicLink);
+  document.getElementById('btn-copy-pub-link').addEventListener('click', () => {
+    const linkText = document.getElementById('pub-link-url').innerText;
+    copyToClipboard(linkText);
+  });
+
+  // Handle QR links explicitly in JS to ensure window.open behaves correctly in all desktop/phone browsers
+  const shareQrLink = document.getElementById('share-qr-link');
+  if (shareQrLink) {
+    shareQrLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const href = shareQrLink.getAttribute('href');
+      if (href && href !== '#') {
+        window.open(href, '_blank');
+      }
+    });
+  }
+
+  const pubQrLink = document.getElementById('pub-qr-link');
+  if (pubQrLink) {
+    pubQrLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const href = pubQrLink.getAttribute('href');
+      if (href && href !== '#') {
+        window.open(href, '_blank');
+      }
+    });
+  }
+}
+
+async function openShareAccessModal(fileId) {
+  state.activeShareFileId = fileId;
+  document.getElementById('share-email-input').value = '';
+  document.getElementById('pub-link-section').style.display = 'none';
+  document.getElementById('share-access-overlay').style.display = 'flex';
+  
+  fetchShareAccessList(fileId);
+}
+
+async function fetchShareAccessList(fileId) {
+  try {
+    const res = await secureFetch(`/api/files/${fileId}/share-info`);
+    if (!res.ok) throw new Error('Failed to load sharing info');
+    
+    const data = await res.json();
+    const container = document.getElementById('share-access-list');
+    
+    if (data.sharedUsers.length === 0) {
+      container.innerHTML = `<div class="text-muted small text-center py-2">Only you (owner) have access.</div>`;
+      return;
+    }
+
+    container.innerHTML = data.sharedUsers.map(user => `
+      <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="display: flex; flex-direction: column;">
+          <span style="font-size: 11px; font-weight: 500;">${escapeHtml(user.username)}</span>
+          <span style="font-size: 9px; color: rgba(255,255,255,0.5);">${escapeHtml(user.email)} (${user.permission})</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="revokeFileAccess('${fileId}', '${user.userId}')" style="padding: 2px 6px; font-size: 9px; color: #ff5f5f; border-color: rgba(255,95,95,0.2);">Revoke</button>
+      </div>
+    `).join('');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function grantFileAccess() {
+  const fileId = state.activeShareFileId;
+  const email = document.getElementById('share-email-input').value.trim();
+  const permission = document.getElementById('share-perm-select').value;
+
+  if (!email) {
+    showToast('Please type receiver email address', 'error');
+    return;
+  }
+
+  try {
+    const res = await secureFetch(`/api/files/${fileId}/share`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, permission })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to grant sharing access');
+
+    showToast(`Access permission granted successfully!`, 'success');
+    document.getElementById('share-email-input').value = '';
+    fetchShareAccessList(fileId);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function revokeFileAccess(fileId, userId) {
+  try {
+    const res = await secureFetch(`/api/files/${fileId}/share/${userId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Failed to revoke access');
+
+    showToast('Access revoked successfully', 'info');
+    fetchShareAccessList(fileId);
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function generatePublicLink() {
+  const fileId = state.activeShareFileId;
+  const expiresInHours = document.getElementById('pub-expiry-select').value;
+
+  try {
+    const res = await secureFetch(`/api/files/${fileId}/share-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresInHours })
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error('Failed to generate public share token');
+
+    const downloadUrl = `${location.protocol}//${location.host}/api/public/download/${data.token}`;
+    document.getElementById('pub-link-url').innerText = downloadUrl;
+    document.getElementById('pub-link-section').style.display = 'block';
+
+    // Generate QR Code onto canvas
+    const qrCanvas = document.getElementById('pub-qr-canvas');
+    new QRious({
+      element: qrCanvas,
+      value: downloadUrl,
+      size: 120
+    });
+    
+    // Set href of public QR link to make it clickable
+    const qrLink = document.getElementById('pub-qr-link');
+    if (qrLink) qrLink.href = downloadUrl;
+
+    showToast('Expiring public share link generated!', 'success');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// --------------------------------------------------------------------------
+// 7. AUDIT LOGS DISPLAY
+// --------------------------------------------------------------------------
+async function openAuditLogsModal(fileId) {
+  document.getElementById('audit-logs-overlay').style.display = 'flex';
+  const tbody = document.getElementById('audit-logs-tbody');
+  tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: #888;">Loading logs...</td></tr>`;
+
+  try {
+    const res = await secureFetch(`/api/files/${fileId}/logs`);
+    if (!res.ok) throw new Error('Failed to load audit logs');
+    
+    const logs = await res.json();
+    if (logs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: #888;">No audit logs recorded for this file.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = logs.map(l => `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <td style="padding: 8px;">${escapeHtml(l.userEmail)}</td>
+        <td style="padding: 8px;"><span class="badge ${getLogActionClass(l.action)}">${l.action.toUpperCase()}</span></td>
+        <td style="padding: 8px; color: rgba(255,255,255,0.7);">${escapeHtml(l.details)}</td>
+        <td style="padding: 8px; color: rgba(255,255,255,0.4);">${new Date(l.timestamp).toLocaleString()}</td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" style="padding: 20px; text-align: center; color: #ff5f5f;">Error loading logs: ${err.message}</td></tr>`;
+  }
+}
+
+function getLogActionClass(action) {
+  switch (action) {
+    case 'upload': return 'bg-success';
+    case 'download': return 'bg-primary';
+    case 'share': return 'bg-info';
+    case 'delete': return 'bg-danger';
+    default: return 'bg-secondary';
+  }
+}
+
+// --------------------------------------------------------------------------
+// 8. REST FILE SYNCS & LISTINGS
+// --------------------------------------------------------------------------
+function switchExplorerTab(tabName) {
+  state.activeExplorerTab = tabName;
+  document.getElementById('explorer-tab-myfiles').classList.toggle('active', tabName === 'myfiles');
+  document.getElementById('explorer-tab-shared').classList.toggle('active', tabName === 'shared');
+  renderFileList();
+}
+
 async function fetchFiles() {
   const btn = document.getElementById('btn-refresh-files');
   let icon = null;
@@ -541,24 +899,22 @@ async function fetchFiles() {
     btn.disabled = true;
   }
   
+  // Refresh plan status
+  fetchUserBillingPlan();
+
   try {
-    const res = await fetch('/api/transfer/files', {
-      headers: { 'X-Client-Id': state.clientId }
-    });
+    const res = await secureFetch('/api/files');
     if (!res.ok) throw new Error('Files load failed');
-    state.files = await res.json();
+    const data = await res.json();
+    state.myFiles = data.myFiles || [];
+    state.sharedWithMe = data.sharedWithMe || [];
     renderFileList();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
-      if (icon) {
-        // Keep spinning for at least 500ms for a satisfying visual feedback loop
-        setTimeout(() => {
-          icon.classList.remove('bi-spin-animate');
-        }, 500);
-      }
+      if (icon) setTimeout(() => icon.classList.remove('bi-spin-animate'), 500);
     }
   }
 }
@@ -567,34 +923,38 @@ function renderFileList() {
   const tbody = document.getElementById('file-table-body');
   const countBadge = document.getElementById('sidebar-file-count');
   
-  // Combine completed files and active uploading files from transfers
-  const listToRender = [...state.files];
-  
-  state.transfers.forEach(tx => {
-    if (tx.status === 'uploading' || tx.status === 'paused' || tx.status === 'assembling') {
-      // Add virtual file entry for immediate feedback
-      listToRender.push({
-        fileId: `virtual-${tx.id}`,
-        name: tx.name,
-        size: tx.size,
-        mimeType: 'uploading',
-        uploadedAt: Date.now(),
-        isVirtual: true,
-        progress: tx.progress,
-        status: tx.status
-      });
-    }
-  });
+  let listToRender = [];
+  if (state.activeExplorerTab === 'myfiles') {
+    listToRender = [...state.myFiles];
+    // Add virtual file entry for immediate feedback during active local/cloud uploads
+    state.transfers.forEach(tx => {
+      if (tx.status === 'uploading' || tx.status === 'paused' || tx.status === 'assembling') {
+        listToRender.push({
+          id: `virtual-${tx.id}`,
+          name: tx.name,
+          size: tx.size,
+          mimeType: 'uploading',
+          created_at: Date.now(),
+          isVirtual: true,
+          progress: tx.progress,
+          status: tx.status
+        });
+      }
+    });
+    countBadge.innerText = state.myFiles.length;
+  } else {
+    listToRender = [...state.sharedWithMe];
+    countBadge.innerText = state.sharedWithMe.length;
+  }
   
   const filtered = listToRender.filter(f => f.name.toLowerCase().includes(state.searchQuery));
-  countBadge.innerText = state.files.length;
   
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr class="empty-table-row">
         <td colspan="4" class="text-center text-muted py-5">
           <i class="bi bi-folder-x display-4 d-block mb-3"></i>
-          No matching files found on this shared node.
+          No files in this directory. Drag & drop files here to upload.
         </td>
       </tr>
     `;
@@ -603,32 +963,59 @@ function renderFileList() {
   
   tbody.innerHTML = filtered.map(file => {
     const formattedSize = formatBytes(file.size);
-    const dateFormatted = file.isVirtual ? 'In progress...' : new Date(file.uploadedAt).toLocaleString();
+    const dateFormatted = file.isVirtual ? 'In progress...' : new Date(file.created_at || file.uploadedAt).toLocaleString();
     
     let actionHtml = '';
     if (file.isVirtual) {
       actionHtml = `
-        <span id="file-badge-${file.fileId}" class="badge bg-primary-gradient px-2 py-1" style="font-size: 10px; background: var(--btn-primary-bg); color: white; border-radius: 4px;">
+        <span id="file-badge-${file.id}" class="badge bg-primary-gradient px-2 py-1" style="font-size: 10px; background: var(--btn-primary-bg); color: white; border-radius: 4px;">
           ${file.status === 'assembling' ? 'Assembling...' : `${file.progress.toFixed(0)}%`}
         </span>
       `;
     } else {
-      actionHtml = `
-        <div class="d-flex justify-content-center gap-2">
-          <a href="/api/transfer/download/${file.fileId}?clientId=${state.clientId}" class="btn btn-secondary btn-sm p-1" title="Download File" download>
-            <i class="bi bi-download"></i>
-          </a>
-          <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="deleteFileFromServer('${file.fileId}')" title="Delete File">
-            <i class="bi bi-trash"></i>
-          </button>
-        </div>
-      `;
+      if (state.activeExplorerTab === 'myfiles') {
+        actionHtml = `
+          <div class="d-flex justify-content-center gap-1">
+            <a href="/api/files/${file.id}/download?sessionToken=${state.sessionToken}" class="btn btn-secondary btn-sm p-1" style="padding: 2px 4px; font-size: 10px;" title="Download File">
+              <i class="bi bi-download"></i>
+            </a>
+            <button class="btn btn-secondary btn-sm p-1" onclick="openShareAccessModal('${file.id}')" style="padding: 2px 4px; font-size: 10px; color: var(--accent);" title="Access Permissions">
+              <i class="bi bi-share"></i>
+            </button>
+            <button class="btn btn-secondary btn-sm p-1" onclick="openAuditLogsModal('${file.id}')" style="padding: 2px 4px; font-size: 10px;" title="Audit Logs">
+              <i class="bi bi-card-list"></i>
+            </button>
+            <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="deleteFileFromServer('${file.id}')" style="padding: 2px 4px; font-size: 10px;" title="Delete File">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        `;
+      } else {
+        // Shared with me list
+        const canDownload = file.permission === 'download';
+        actionHtml = `
+          <div class="d-flex justify-content-center gap-1">
+            ${canDownload ? `
+              <a href="/api/files/${file.id}/download?sessionToken=${state.sessionToken}" class="btn btn-secondary btn-sm p-1" style="padding: 2px 4px; font-size: 10px;" title="Download File">
+                <i class="bi bi-download"></i>
+              </a>
+            ` : `
+              <button class="btn btn-secondary btn-sm p-1" style="padding: 2px 4px; font-size: 10px; opacity: 0.5;" title="Download Disabled (View Only)" disabled>
+                <i class="bi bi-download"></i>
+              </button>
+            `}
+          </div>
+        `;
+      }
     }
     
+    const iconClass = file.storage_type === 'cloud' ? 'bi-cloud-check text-accent' : 'bi-file-earmark-code text-accent';
+    const rowTitle = state.activeExplorerTab === 'shared' ? `Owner: ${file.ownerEmail}` : '';
+
     return `
-      <tr class="${file.isVirtual ? 'uploading-row-flash' : ''}">
+      <tr class="${file.isVirtual ? 'uploading-row-flash' : ''}" title="${rowTitle}">
         <td>
-          <i class="bi ${file.isVirtual ? 'bi-cloud-arrow-up animate-pulse' : 'bi-file-earmark-code'} me-2 text-accent"></i>
+          <i class="bi ${file.isVirtual ? 'bi-cloud-arrow-up animate-pulse' : iconClass} me-2"></i>
           <strong>${escapeHtml(file.name)}</strong>
         </td>
         <td>${formattedSize}</td>
@@ -640,11 +1027,10 @@ function renderFileList() {
 }
 
 async function deleteFileFromServer(fileId) {
-  if (!confirm('Are you sure you want to delete this file from the server?')) return;
+  if (!confirm('Are you sure you want to delete this file permanently?')) return;
   try {
-    const res = await fetch(`/api/transfer/files/${fileId}`, {
-      method: 'DELETE',
-      headers: { 'X-Client-Id': state.clientId }
+    const res = await secureFetch(`/api/files/${fileId}`, {
+      method: 'DELETE'
     });
     if (!res.ok) throw new Error('Delete file failed');
     showToast('File deleted successfully', 'success');
@@ -656,11 +1042,10 @@ async function deleteFileFromServer(fileId) {
 
 async function fetchServerSettings() {
   try {
-    const res = await fetch('/api/settings');
+    const res = await secureFetch('/api/settings');
     if (!res.ok) throw new Error('Settings load failed');
     const settings = await res.json();
     
-    // Save to state
     state.serverSettings = settings;
     
     // Bind network panel
@@ -701,14 +1086,10 @@ async function fetchServerSettings() {
     
     ipContainer.innerHTML = addressesHtml;
     
-    // Update start menu subtitle and device name
+    // Update start menu subtitle
     const startMenuSubtitle = document.getElementById('start-menu-subtitle');
-    const startMenuDevice = document.getElementById('start-menu-device-name');
     if (startMenuSubtitle) {
       startMenuSubtitle.innerText = settings.publicTunnelUrl ? 'Public Tunnel Active' : 'LAN Sharing Mode';
-    }
-    if (startMenuDevice) {
-      startMenuDevice.innerText = settings.deviceName || state.username;
     }
     
     // Bind inputs
@@ -734,7 +1115,7 @@ async function saveServerConfig() {
   };
   
   try {
-    const res = await fetch('/api/settings', {
+    const res = await secureFetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -758,104 +1139,13 @@ function saveProfileLocal() {
     state.username = usernameVal;
     safeLocalStorage.setItem('aerosync_username', usernameVal);
     safeLocalStorage.setItem('aerosync_avatar', state.avatar);
-    
-    // Send update over WS
     sendJoinMessage();
-    
     showToast('Profile settings updated successfully!', 'success');
   }
 }
 
 // --------------------------------------------------------------------------
-// 5.5. Host Pending Upload Approvals
-// --------------------------------------------------------------------------
-async function fetchPendingApprovals() {
-  if (!state.isHost) return;
-  try {
-    const res = await fetch('/api/transfer/pending', {
-      headers: { 'X-Client-Id': state.clientId }
-    });
-    if (!res.ok) throw new Error('Failed to load pending queue');
-    const pendingList = await res.json();
-    renderPendingApprovals(pendingList);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function renderPendingApprovals(list) {
-  const container = document.getElementById('pending-approvals-list');
-  if (!container) return;
-  
-  if (list.length === 0) {
-    container.innerHTML = `<div class="text-muted small">No pending upload requests.</div>`;
-    return;
-  }
-  
-  container.innerHTML = list.map(item => `
-    <div class="pending-item">
-      <div class="pending-info">
-        <strong class="pending-name" title="${item.name}">${item.name}</strong>
-        <span class="pending-meta">${formatBytes(item.size)} - From: ${item.senderName}</span>
-      </div>
-      <div class="pending-actions">
-        <button class="btn-approve" data-file-id="${item.fileId}">Accept</button>
-        <button class="btn-reject" data-file-id="${item.fileId}">Reject</button>
-      </div>
-    </div>
-  `).join('');
-  
-  // Bind click handlers dynamically
-  container.querySelectorAll('.btn-approve').forEach(btn => {
-    btn.addEventListener('click', () => {
-      approvePendingUpload(btn.dataset.fileId);
-    });
-  });
-  container.querySelectorAll('.btn-reject').forEach(btn => {
-    btn.addEventListener('click', () => {
-      rejectPendingUpload(btn.dataset.fileId);
-    });
-  });
-}
-
-async function approvePendingUpload(fileId) {
-  try {
-    const res = await fetch('/api/transfer/approve', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'X-Client-Id': state.clientId
-      },
-      body: JSON.stringify({ fileId })
-    });
-    if (!res.ok) throw new Error('Approval request failed');
-    showToast('File approved and shared successfully', 'success');
-    fetchPendingApprovals();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-
-async function rejectPendingUpload(fileId) {
-  try {
-    const res = await fetch('/api/transfer/reject', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'X-Client-Id': state.clientId
-      },
-      body: JSON.stringify({ fileId })
-    });
-    if (!res.ok) throw new Error('Rejection request failed');
-    showToast('File upload request rejected and deleted', 'info');
-    fetchPendingApprovals();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-
-// --------------------------------------------------------------------------
-// 6. Resumable Chunked Upload Engine
+// 9. ADVANCED DOUBLE-MODE UPLOAD ENGINE
 // --------------------------------------------------------------------------
 function setupDragAndDrop() {
   const zone = document.getElementById('desktop-area');
@@ -863,7 +1153,6 @@ function setupDragAndDrop() {
   
   let counter = 0;
   
-  // Prevent browser opening dropped files globally
   window.addEventListener('dragover', (e) => e.preventDefault(), false);
   window.addEventListener('drop', (e) => e.preventDefault(), false);
   
@@ -871,20 +1160,16 @@ function setupDragAndDrop() {
     e.preventDefault();
     counter++;
     overlay.classList.add('drag-hover');
-    openWindow('files'); // Ensure Explorer window is open to accept
+    openWindow('files');
   });
   
   zone.addEventListener('dragleave', (e) => {
     e.preventDefault();
     counter--;
-    if (counter === 0) {
-      overlay.classList.remove('drag-hover');
-    }
+    if (counter === 0) overlay.classList.remove('drag-hover');
   });
   
-  zone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-  });
+  zone.addEventListener('dragover', (e) => e.preventDefault());
   
   zone.addEventListener('drop', (e) => {
     e.preventDefault();
@@ -897,58 +1182,52 @@ function setupDragAndDrop() {
 function handleFileUploads(fileList) {
   if (fileList.length === 0) return;
   
-  // Loop and start upload session for each file
+  // Check active transfer mode radio button (Fast LAN vs Private Cloud)
+  const modeVal = document.querySelector('input[name="transfer-mode-select"]:checked').value;
+
   for (const file of fileList) {
-    initiateChunkedUpload(file);
+    if (modeVal === 'cloud') {
+      initiateCloudUpload(file);
+    } else {
+      initiateLocalUpload(file);
+    }
   }
   
   openWindow('transfers');
 }
 
 function getOptimalChunkSize(fileSize) {
-  if (fileSize > 500 * 1024 * 1024) {
-    return 50 * 1024 * 1024; // Cap at 50MB chunks for large files
-  } else if (fileSize > 150 * 1024 * 1024) {
-    return 32 * 1024 * 1024; // 32MB chunks
-  } else if (fileSize > 50 * 1024 * 1024) {
-    return 16 * 1024 * 1024; // 16MB chunks
-  } else if (fileSize > 10 * 1024 * 1024) {
-    return 8 * 1024 * 1024; // 8MB chunks
-  } else if (fileSize > 2 * 1024 * 1024) {
-    return 4 * 1024 * 1024; // 4MB chunks
-  }
-  return 2 * 1024 * 1024; // 2MB chunks
+  if (fileSize > 500 * 1024 * 1024) return 50 * 1024 * 1024;
+  if (fileSize > 150 * 1024 * 1024) return 32 * 1024 * 1024;
+  if (fileSize > 50 * 1024 * 1024) return 16 * 1024 * 1024;
+  return 4 * 1024 * 1024; // standard 4MB chunk
 }
 
-function getUploadConcurrency(fileSize) {
-  if (fileSize > 5 * 1024 * 1024 * 1024) return 3;
-  if (fileSize > 500 * 1024 * 1024) return 4;
-  if (fileSize > 150 * 1024 * 1024) return 6;
-  return 8;
-}
-
-async function initiateChunkedUpload(file) {
-  const uploadId = 'up-' + generateUUID();
+// --------------------------------------------------------
+// LOCAL LAN MODE UPLOAD
+// --------------------------------------------------------
+async function initiateLocalUpload(file) {
+  const uploadId = 'up-local-' + generateUUID();
   const CHUNK_SIZE = getOptimalChunkSize(file.size);
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   
-  // Register in transfers map
   const transfer = {
     id: uploadId,
     name: file.name,
     size: file.size,
-    type: 'Upload (Server)',
+    type: 'Upload (LAN)',
     progress: 0,
     speed: 0,
-    eta: 'Calculating...',
-    status: 'uploading', // uploading, paused, completed, failed
+    eta: 'Connecting...',
+    status: 'uploading',
     paused: false,
     chunksSent: [],
     totalChunks,
-    concurrency: getUploadConcurrency(file.size),
+    concurrency: 4,
     file,
     chunkSize: CHUNK_SIZE,
-    xhr: null,
+    activeXHRs: new Map(),
+    activeXHRInstances: new Map(),
     bytesLastLoaded: 0,
     timeLastCheck: Date.now()
   };
@@ -956,78 +1235,137 @@ async function initiateChunkedUpload(file) {
   state.transfers.set(uploadId, transfer);
   updateTransferCountBadge();
   renderTransferQueue();
-  renderFileList(); // Update files manager immediately to show virtual item
+  renderFileList();
   
   try {
-    // 1. Initialize upload session on Server
-    const initRes = await fetch('/api/transfer/upload/init', {
+    const initRes = await secureFetch('/api/transfer/upload/init', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Id': state.clientId
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         uploadId,
         name: file.name,
         size: file.size,
-        totalChunks,
-        mimeType: file.type || 'application/octet-stream',
-        clientId: state.clientId,
-        senderName: state.username
+        totalChunks
       })
     });
     
-    if (!initRes.ok) throw new Error('Init upload session failed');
+    if (!initRes.ok) {
+      const errData = await initRes.json().catch(() => ({}));
+      if (errData.code === 'QUOTA_EXCEEDED' || (errData.error && errData.error.includes('limit is reached'))) {
+        alert('Your storage limit is reached. Upgrade your plan to continue.');
+        toggleWindow('billing');
+      }
+      throw new Error(errData.error || 'Init local upload session failed');
+    }
     const initData = await initRes.json();
     transfer.chunksSent = initData.completedChunks || [];
     
-    // 2. Loop and transmit missing chunks
-    uploadNextChunks(transfer);
+    uploadNextChunks(transfer, '/api/transfer/upload/chunk/raw');
   } catch (err) {
     transfer.status = 'failed';
-    showToast(`Upload failed for ${file.name}: ${err.message}`, 'error');
+    showToast(`LAN Upload failed: ${err.message}`, 'error');
     renderTransferQueue();
   }
 }
 
-async function uploadNextChunks(transfer) {
+// --------------------------------------------------------
+// PRIVATE CLOUD MODE MULTIPART UPLOAD
+// --------------------------------------------------------
+async function initiateCloudUpload(file) {
+  const uploadId = 'up-cloud-' + generateUUID();
+  const CHUNK_SIZE = getOptimalChunkSize(file.size);
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  
+  const transfer = {
+    id: uploadId,
+    name: file.name,
+    size: file.size,
+    type: 'Upload (Cloud)',
+    progress: 0,
+    speed: 0,
+    eta: 'Creating session...',
+    status: 'uploading',
+    paused: false,
+    chunksSent: [],
+    totalChunks,
+    concurrency: 3,
+    file,
+    chunkSize: CHUNK_SIZE,
+    activeXHRs: new Map(),
+    activeXHRInstances: new Map(),
+    bytesLastLoaded: 0,
+    timeLastCheck: Date.now(),
+    uploadUrls: [],
+    fileId: null
+  };
+  
+  state.transfers.set(uploadId, transfer);
+  updateTransferCountBadge();
+  renderTransferQueue();
+  renderFileList();
+  
+  try {
+    const initRes = await secureFetch('/api/transfer/upload/init-cloud', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uploadId,
+        name: file.name,
+        size: file.size,
+        totalChunks
+      })
+    });
+    
+    if (!initRes.ok) {
+      const errData = await initRes.json().catch(() => ({}));
+      if (errData.code === 'QUOTA_EXCEEDED' || (errData.error && errData.error.includes('limit is reached'))) {
+        alert('Your storage limit is reached. Upgrade your plan to continue.');
+        toggleWindow('billing');
+      }
+      throw new Error(errData.error || 'Init cloud upload session failed');
+    }
+    const initData = await initRes.json();
+    
+    transfer.fileId = initData.fileId;
+    transfer.uploadUrls = initData.uploadUrls; // List of presigned put URLs
+    
+    uploadNextChunks(transfer, null); // Signed cloud uploads bypass default server route URL
+  } catch (err) {
+    transfer.status = 'failed';
+    showToast(`Cloud Upload failed: ${err.message}`, 'error');
+    renderTransferQueue();
+  }
+}
+
+async function uploadNextChunks(transfer, defaultRoute) {
   if (transfer.paused || transfer.status !== 'uploading') return;
   
   if (!transfer.activeUploads) transfer.activeUploads = 0;
-  if (!transfer.activeXHRs) transfer.activeXHRs = new Map();
-  if (!transfer.activeXHRInstances) transfer.activeXHRInstances = new Map();
   
-  const CONCURRENCY = transfer.concurrency || getUploadConcurrency(transfer.size);
-  
-  // Find all chunks currently being uploaded or already sent
+  const CONCURRENCY = transfer.concurrency;
   const busyChunks = new Set(transfer.chunksSent);
   transfer.activeXHRs.forEach((_, idx) => busyChunks.add(idx));
   
-  // Find next unsent chunks to fill the concurrency slots
   const chunksToStart = [];
   for (let i = 0; i < transfer.totalChunks; i++) {
     if (!busyChunks.has(i)) {
       chunksToStart.push(i);
       busyChunks.add(i);
-      if (chunksToStart.length + transfer.activeUploads >= CONCURRENCY) {
-        break;
-      }
+      if (chunksToStart.length + transfer.activeUploads >= CONCURRENCY) break;
     }
   }
   
-  // If no active uploads and all chunks are completed, assemble!
   if (transfer.activeUploads === 0 && transfer.chunksSent.length === transfer.totalChunks) {
-    assembleUploadedChunks(transfer);
+    finalizeUploadAssembly(transfer);
     return;
   }
   
-  // Start the new chunk uploads in parallel
   chunksToStart.forEach((chunkIndex) => {
-    startChunkUpload(transfer, chunkIndex);
+    startMultipartUpload(transfer, chunkIndex, defaultRoute);
   });
 }
 
-function startChunkUpload(transfer, chunkIndex) {
+function startMultipartUpload(transfer, chunkIndex, defaultRoute) {
   transfer.activeUploads++;
   transfer.activeXHRs.set(chunkIndex, 0);
   
@@ -1046,11 +1384,8 @@ function startChunkUpload(transfer, chunkIndex) {
       const duration = (now - transfer.timeLastCheck) / 1000;
       
       if (duration >= 0.5) {
-        // Calculate total uploaded bytes
         let totalUploadedBytes = transfer.chunksSent.length * transfer.chunkSize;
-        transfer.activeXHRs.forEach((loaded) => {
-          totalUploadedBytes += loaded;
-        });
+        transfer.activeXHRs.forEach((loaded) => { totalUploadedBytes += loaded; });
         
         const bytesSentDiff = totalUploadedBytes - transfer.bytesLastLoaded;
         const currentSpeedBytes = bytesSentDiff / duration;
@@ -1065,11 +1400,8 @@ function startChunkUpload(transfer, chunkIndex) {
         }
       }
       
-      // Calculate absolute progress
       let totalUploadedBytes = transfer.chunksSent.length * transfer.chunkSize;
-      transfer.activeXHRs.forEach((loaded) => {
-        totalUploadedBytes += loaded;
-      });
+      transfer.activeXHRs.forEach((loaded) => { totalUploadedBytes += loaded; });
       const progressPercent = Math.min((totalUploadedBytes / transfer.size) * 100, 99.9);
       
       transfer.progress = progressPercent;
@@ -1077,7 +1409,7 @@ function startChunkUpload(transfer, chunkIndex) {
     }
   };
   
-  xhr.onload = async () => {
+  xhr.onload = () => {
     transfer.activeUploads--;
     transfer.activeXHRs.delete(chunkIndex);
     transfer.activeXHRInstances.delete(chunkIndex);
@@ -1086,11 +1418,10 @@ function startChunkUpload(transfer, chunkIndex) {
       if (!transfer.chunksSent.includes(chunkIndex)) {
         transfer.chunksSent.push(chunkIndex);
       }
-      // Re-trigger the loop to fill empty slots
-      uploadNextChunks(transfer);
+      uploadNextChunks(transfer, defaultRoute);
     } else if (transfer.status === 'uploading') {
       transfer.status = 'failed';
-      showToast(`Upload failed on chunk ${chunkIndex}`, 'error');
+      showToast(`Upload failed on part block ${chunkIndex}`, 'error');
       renderTransferQueue();
     }
   };
@@ -1102,75 +1433,66 @@ function startChunkUpload(transfer, chunkIndex) {
     
     if (transfer.status === 'uploading') {
       transfer.status = 'failed';
-      showToast('Network error during upload', 'error');
+      showToast('Network error on multipart transfer', 'error');
       renderTransferQueue();
     }
   };
   
-  xhr.open('POST', '/api/transfer/upload/chunk/raw');
-  xhr.setRequestHeader('X-Client-Id', state.clientId);
-  xhr.setRequestHeader('X-Upload-Id', transfer.id);
-  xhr.setRequestHeader('X-Chunk-Index', String(chunkIndex));
-  xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-  xhr.send(chunkBlob);
+  // Decide target route (Cloud puts direct to simulated S3, LAN uses raw chunk API)
+  if (defaultRoute) {
+    // Local LAN Mode chunk
+    xhr.open('POST', defaultRoute);
+    xhr.setRequestHeader('X-Session-Token', state.sessionToken);
+    xhr.setRequestHeader('X-Client-Id', state.clientId);
+    xhr.setRequestHeader('X-Upload-Id', transfer.id);
+    xhr.setRequestHeader('X-Chunk-Index', String(chunkIndex));
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.send(chunkBlob);
+  } else {
+    // Private Cloud Mode: PUT chunk directly to pre-signed cloud URL signature
+    const signedUrl = transfer.uploadUrls[chunkIndex];
+    xhr.open('PUT', signedUrl);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.send(chunkBlob);
+  }
 }
 
-async function assembleUploadedChunks(transfer) {
+async function finalizeUploadAssembly(transfer) {
   transfer.status = 'assembling';
   transfer.speed = 0;
-  transfer.eta = 'Assembling file...';
+  transfer.eta = 'Finalizing file...';
   updateTransferItemUI(transfer.id);
   
   try {
-    const res = await fetch('/api/transfer/upload/complete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Id': state.clientId
-      },
-      body: JSON.stringify({
-        uploadId: transfer.id,
-        clientId: state.clientId,
-        senderName: state.username
-      })
-    });
+    let res;
+    if (transfer.type === 'Upload (Cloud)') {
+      // Cloud multipart assembly completion
+      res = await secureFetch('/api/transfer/upload/complete-cloud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileId: transfer.fileId,
+          uploadId: transfer.id
+        })
+      });
+    } else {
+      // Local LAN assembly completion
+      res = await secureFetch('/api/transfer/upload/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uploadId: transfer.id
+        })
+      });
+    }
     
-    if (!res.ok) throw new Error('File assembly failed');
-    const data = await res.json();
+    if (!res.ok) throw new Error('File assembly completion failed');
     
     transfer.status = 'completed';
     transfer.progress = 100;
+    transfer.eta = 'Done';
+    showToast(`File ${transfer.name} uploaded successfully!`, 'success');
     
-    if (data.status === 'pending') {
-      transfer.eta = 'Waiting approval';
-      showToast(`File ${transfer.name} uploaded! Waiting for host approval.`, 'info');
-    } else {
-      transfer.eta = 'Done';
-      showToast(`File ${transfer.name} uploaded successfully!`, 'success');
-    }
-
-    if (transfer.fallbackTargetId) {
-      // Helper to encode string to hex
-      const toHex = (str) => {
-        let hex = '';
-        for (let i = 0; i < str.length; i++) {
-          hex += str.charCodeAt(i).toString(16);
-        }
-        return hex;
-      };
-      const hexFileId = toHex(transfer.name);
-      
-      console.log(`Sending P2P fallback ready signal to peer ${transfer.fallbackTargetId} for fileId: ${hexFileId}`);
-      sendSignal(transfer.fallbackTargetId, {
-        type: 'p2p-fallback-ready',
-        fileId: hexFileId,
-        name: transfer.name
-      });
-      
-      transfer.eta = 'Sent via Relay';
-      showToast(`File ${transfer.name} successfully transferred via Server Relay fallback!`, 'success');
-    }
-
     renderTransferQueue();
     fetchFiles();
     updateTransferCountBadge();
@@ -1197,223 +1519,25 @@ function togglePauseUpload(transferId) {
     }
     showToast(`Upload paused: ${transfer.name}`, 'info');
     renderTransferQueue();
-    renderFileList(); // Update files list to reflect paused state
+    renderFileList();
   } else if (transfer.status === 'paused') {
     transfer.paused = false;
     transfer.status = 'uploading';
     transfer.timeLastCheck = Date.now();
     transfer.bytesLastLoaded = 0;
-    uploadNextChunks(transfer);
+    
+    const route = transfer.type === 'Upload (Cloud)' ? null : '/api/transfer/upload/chunk/raw';
+    uploadNextChunks(transfer, route);
+    
     showToast(`Resuming upload: ${transfer.name}`, 'info');
     renderTransferQueue();
-    renderFileList(); // Update files list to reflect uploading state
+    renderFileList();
   }
-}
-
-function cleanupServerUpload(uploadId) {
-  fetch(`/api/transfer/upload/${encodeURIComponent(uploadId)}`, {
-    method: 'DELETE',
-    headers: { 'X-Client-Id': state.clientId }
-  }).catch(() => {});
-}
-
-function cancelTransfer(transferId, skipConfirm = false, notifyPeer = true) {
-  const transfer = state.transfers.get(transferId);
-  if (!transfer) return;
-  
-  if (!skipConfirm && !confirm(`Stop and remove transfer of ${transfer.name}?`)) return;
-
-  if (transfer.activeXHRInstances) {
-    transfer.activeXHRInstances.forEach((xhr) => {
-      try { xhr.abort(); } catch (e) {}
-    });
-    transfer.activeXHRInstances.clear();
-  }
-
-  if (transfer.watchdogInterval) {
-    clearInterval(transfer.watchdogInterval);
-    transfer.watchdogInterval = null;
-  }
-  if (transfer.timeoutRef) {
-    clearTimeout(transfer.timeoutRef);
-    transfer.timeoutRef = null;
-  }
-  if (transfer.dataChannel) {
-    try { transfer.dataChannel.close(); } catch (e) {}
-  }
-  if (transfer.peerId) {
-    if (notifyPeer) {
-      sendSignal(transfer.peerId, {
-        type: 'p2p-cancel',
-        transferId,
-        name: transfer.name
-      });
-    }
-    closePeerConnection(transfer.peerId);
-  }
-
-  if (transfer.type.includes('Server')) {
-    cleanupServerUpload(transfer.id);
-  }
-
-  state.transfers.delete(transferId);
-  renderTransferQueue();
-  updateTransferCountBadge();
-  renderFileList();
-  showToast('Transfer stopped and removed', 'info');
-}
-
-function cancelUpload(transferId) {
-  cancelTransfer(transferId);
 }
 
 // --------------------------------------------------------------------------
-// 7. WebSocket signaling client
+// 10. WebRTC P2P direct transfer
 // --------------------------------------------------------------------------
-function sendJoinMessage(otpCode = null) {
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    const payload = {
-      type: 'join',
-      clientId: state.clientId,
-      username: state.username,
-      avatar: state.avatar,
-      deviceInfo: {
-        platform: navigator.platform,
-        userAgent: navigator.userAgent
-      }
-    };
-    if (otpCode) {
-      payload.otp = otpCode;
-      state.otp = otpCode;
-    } else if (state.otp) {
-      payload.otp = state.otp;
-    }
-    state.ws.send(JSON.stringify(payload));
-  }
-}
-
-function initWebSocket() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const wsUrl = `${proto}://${location.host}/ws`;
-  
-  state.ws = new WebSocket(wsUrl);
-  
-  state.ws.onopen = () => {
-    document.getElementById('network-status-text').innerText = 'Connected';
-    document.getElementById('network-status-icon').className = 'bi bi-wifi text-success';
-    sendJoinMessage(); // Register Client
-  };
-  
-  state.ws.onclose = () => {
-    document.getElementById('network-status-text').innerText = 'Offline';
-    document.getElementById('network-status-icon').className = 'bi bi-wifi-off text-danger';
-    
-    // Auto-reconnect after 5 seconds
-    setTimeout(initWebSocket, 5000);
-  };
-  
-  state.ws.onmessage = (event) => {
-    try {
-      const msg = JSON.parse(event.data);
-      
-      switch (msg.type) {
-        case 'auth-required':
-          document.getElementById('auth-overlay').style.display = 'flex';
-          document.getElementById('auth-error-msg').style.display = 'none';
-          break;
-          
-        case 'auth-failed':
-          document.getElementById('auth-overlay').style.display = 'flex';
-          const errEl = document.getElementById('auth-error-msg');
-          errEl.innerText = msg.message || 'Incorrect OTP code. Please try again.';
-          errEl.style.display = 'block';
-          break;
-          
-        case 'auth-success':
-          document.getElementById('auth-overlay').style.display = 'none';
-          fetchFiles();
-          break;
-
-        case 'otp-updated':
-          if (state.isHost) {
-            document.getElementById('radar-otp-code').innerText = msg.otp || '------';
-            showToast('Security OTP refreshed successfully', 'success');
-          }
-          break;
-
-        case 'welcome':
-          state.isHost = msg.isHost || false;
-          
-          if (state.isHost) {
-            document.getElementById('radar-otp-banner').style.display = 'flex';
-            document.getElementById('radar-otp-code').innerText = msg.activeOTP || '------';
-            document.getElementById('host-pending-section').style.display = 'block';
-            fetchPendingApprovals();
-          } else {
-            document.getElementById('radar-otp-banner').style.display = 'none';
-            document.getElementById('host-pending-section').style.display = 'none';
-            document.getElementById('auth-overlay').style.display = 'none'; // Auto hide if welcomed
-          }
-          
-          state.peers.clear();
-          msg.clients.forEach(c => state.peers.set(c.id, c));
-          renderRadarScreen();
-          renderTextPeerList();
-          updatePeerCountBadge();
-          break;
-          
-        case 'user-joined':
-          state.peers.set(msg.client.id, msg.client);
-          showToast(`${msg.client.username} has joined the mesh`, 'info');
-          renderRadarScreen();
-          renderTextPeerList();
-          updatePeerCountBadge();
-          break;
-          
-        case 'user-left':
-          const peer = state.peers.get(msg.clientId);
-          if (peer) {
-            showToast(`${peer.username} left the network`, 'info');
-            state.peers.delete(msg.clientId);
-            // Clean peer connection
-            closePeerConnection(msg.clientId);
-          }
-          renderRadarScreen();
-          renderTextPeerList();
-          updatePeerCountBadge();
-          break;
-          
-        case 'signal':
-          handleIncomingSignal(msg.senderId, msg.data);
-          break;
-          
-        case 'upload-pending':
-          if (state.isHost) {
-            showToast(`New file upload request: ${msg.file.name}`, 'info');
-            fetchPendingApprovals();
-            openWindow('transfers');
-          }
-          break;
-          
-        case 'file-list-updated':
-          fetchFiles();
-          break;
-          
-        case 'error':
-          console.error('WS Server Error:', msg.message);
-          break;
-      }
-    } catch (e) {
-      console.error('WS payload error:', e);
-    }
-  };
-}
-
-// --------------------------------------------------------------------------
-// 8. WebRTC Peer-to-Peer direct file transfer
-// --------------------------------------------------------------------------
-
-// Close direct RTCPeerConnection cleanly
 function closePeerConnection(clientId) {
   const pc = state.peerConnections.get(clientId);
   if (pc) {
@@ -1423,48 +1547,42 @@ function closePeerConnection(clientId) {
   state.iceCandidateQueues.delete(clientId);
 }
 
-// Handles WebRTC connection failures, showing fallback suggestions
 function handleWebRTCFailure(peerId, transferId, errorMessage) {
   const transfer = state.transfers.get(transferId);
   if (transfer && transfer.status !== 'completed' && transfer.status !== 'failed') {
     closePeerConnection(peerId);
     
     if (transfer.type === 'Upload (P2P)') {
-      // Automatic fallback upload
+      // Auto fallback to local server chunked upload
       initiateP2PFallbackUpload(transfer, peerId);
     } else if (transfer.type === 'Download (P2P)') {
-      // Receiver side waits for the fallback signal
       transfer.status = 'connecting';
-      transfer.eta = 'Waiting for Server Relay fallback...';
+      transfer.eta = 'Waiting fallback...';
       renderTransferQueue();
-      showToast('P2P direct connection failed. Waiting for sender to fallback to Server Relay...', 'info');
+      showToast('P2P failed. Waiting for server relay fallback...', 'info');
     } else {
       transfer.status = 'failed';
-      transfer.eta = 'Connection failed';
+      transfer.eta = 'Failed';
       renderTransferQueue();
       updateTransferCountBadge();
     }
   }
 }
 
-// Spawns a chunked HTTP upload automatically when direct WebRTC fails
 async function initiateP2PFallbackUpload(transfer, peerId) {
   const file = transfer.file;
   if (!file) return;
 
-  console.log(`Starting P2P automatic fallback upload for: ${file.name}`);
-  showToast(`Direct P2P connection failed. Automatically sending ${file.name} via Server Relay fallback...`, 'info');
+  showToast(`P2P failed. Sending ${file.name} via server fallback...`, 'info');
   
-  // Transition transfer type and state
-  transfer.type = 'Upload (Server)';
+  transfer.type = 'Upload (LAN)';
   transfer.status = 'uploading';
   transfer.progress = 0;
   transfer.speed = 0;
   transfer.eta = 'Starting upload fallback...';
-  transfer.fallbackTargetId = peerId; // Save the target peer ID to signal when upload completes
+  transfer.fallbackTargetId = peerId;
   transfer.peerId = peerId;
   
-  // Initialize server session properties
   transfer.chunkSize = getOptimalChunkSize(file.size);
   transfer.totalChunks = Math.ceil(file.size / transfer.chunkSize);
   transfer.chunksSent = [];
@@ -1475,25 +1593,20 @@ async function initiateP2PFallbackUpload(transfer, peerId) {
   renderFileList();
   
   try {
-    const initRes = await fetch('/api/transfer/upload/init', {
+    const initRes = await secureFetch('/api/transfer/upload/init', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Client-Id': state.clientId
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: file.name,
         size: file.size,
         totalChunks: transfer.totalChunks,
-        mimeType: file.type || 'application/octet-stream',
         uploadId: transfer.id,
-        clientId: state.clientId,
-        senderName: state.username
+        receiverClientId: peerId
       })
     });
     
     if (!initRes.ok) throw new Error('Init fallback upload failed');
-    uploadNextChunks(transfer);
+    uploadNextChunks(transfer, '/api/transfer/upload/chunk/raw');
   } catch (err) {
     transfer.status = 'failed';
     transfer.eta = 'Fallback upload failed';
@@ -1502,7 +1615,6 @@ async function initiateP2PFallbackUpload(transfer, peerId) {
   }
 }
 
-// Relays signals (SDP, Candidates, Invites) to targets
 function sendSignal(targetId, data) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     state.ws.send(JSON.stringify({
@@ -1513,14 +1625,12 @@ function sendSignal(targetId, data) {
   }
 }
 
-// Handle signals relayed from signaling server
 async function handleIncomingSignal(senderId, signal) {
   const peer = state.peers.get(senderId);
   const senderName = peer ? peer.username : 'Unknown Peer';
   
   switch (signal.type) {
     case 'file-invite':
-      // Open accept/decline dialog
       state.pendingInvite = {
         senderId,
         transferId: signal.transferId,
@@ -1534,20 +1644,18 @@ async function handleIncomingSignal(senderId, signal) {
       document.getElementById('prompt-file-size').innerText = formatBytes(signal.size);
       document.getElementById('p2p-prompt-overlay').style.display = 'flex';
       
-      // Bind click once
       document.getElementById('btn-accept-transfer').onclick = acceptIncomingP2P;
       document.getElementById('btn-decline-transfer').onclick = declineIncomingP2P;
       break;
       
     case 'file-decline':
-      showToast(`${senderName} declined your file transfer request`, 'error');
-      // Cancel transfer status
+      showToast(`${senderName} declined your transfer request`, 'error');
       const failedTx = state.transfers.get(signal.transferId);
       if (failedTx) {
         failedTx.status = 'failed';
-        failedTx.eta = 'Declined by peer';
+        failedTx.eta = 'Declined';
         renderTransferQueue();
-        renderFileList(); // Clear virtual item
+        renderFileList();
       }
       break;
       
@@ -1563,15 +1671,12 @@ async function handleIncomingSignal(senderId, signal) {
       const pc = state.peerConnections.get(senderId);
       if (pc) {
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-        // Process queued ICE candidates that arrived early
         const queue = state.iceCandidateQueues.get(senderId) || [];
         for (const candidate of queue) {
           try {
-            if (candidate) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            }
+            if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
           } catch (e) {
-            console.error("Error adding queued candidate [Sender]:", e);
+            console.error("Early candidate err:", e);
           }
         }
         state.iceCandidateQueues.delete(senderId);
@@ -1584,12 +1689,10 @@ async function handleIncomingSignal(senderId, signal) {
         try {
           await connection.addIceCandidate(new RTCIceCandidate(signal.candidate));
         } catch (e) {
-          console.error("Error adding ICE candidate:", e);
+          console.error("ICE candidate err:", e);
         }
       } else {
-        if (!state.iceCandidateQueues.has(senderId)) {
-          state.iceCandidateQueues.set(senderId, []);
-        }
+        if (!state.iceCandidateQueues.has(senderId)) state.iceCandidateQueues.set(senderId, []);
         state.iceCandidateQueues.get(senderId).push(signal.candidate);
       }
       break;
@@ -1610,17 +1713,18 @@ async function handleIncomingSignal(senderId, signal) {
         updateTransferCountBadge();
       }
       
-      const downloadUrl = `/api/transfer/download/${signal.fileId}?clientId=${state.clientId}`;
-      const downloadAnchor = document.createElement('a');
-      downloadAnchor.href = downloadUrl;
-      downloadAnchor.download = signal.name;
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      document.body.removeChild(downloadAnchor);
+      // Auto-trigger the fallback download with session token
+      const downloadUrl = `/api/files/${signal.fileId}/download?sessionToken=${state.sessionToken}`;
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = signal.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
       
-      showToast(`P2P direct connection failed. Successfully downloaded ${signal.name} via Server Relay fallback.`, 'success');
+      showToast(`P2P failed. Downloaded ${signal.name} via server relay.`, 'success');
       break;
-
+ 
     case 'p2p-cancel':
       if (state.pendingInvite && state.pendingInvite.transferId === signal.transferId) {
         document.getElementById('p2p-prompt-overlay').style.display = 'none';
@@ -1628,10 +1732,6 @@ async function handleIncomingSignal(senderId, signal) {
       }
       const cancelledTx = state.transfers.get(signal.transferId);
       if (cancelledTx) {
-        if (cancelledTx.timeoutRef) {
-          clearTimeout(cancelledTx.timeoutRef);
-          cancelledTx.timeoutRef = null;
-        }
         if (cancelledTx.dataChannel) {
           try { cancelledTx.dataChannel.close(); } catch (e) {}
         }
@@ -1641,12 +1741,11 @@ async function handleIncomingSignal(senderId, signal) {
         updateTransferCountBadge();
         renderFileList();
       }
-      showToast(`${senderName} stopped the direct transfer${signal.name ? `: ${signal.name}` : ''}`, 'info');
+      showToast(`${senderName} cancelled transfer`, 'info');
       break;
   }
 }
 
-// User rejects transfer
 function declineIncomingP2P() {
   document.getElementById('p2p-prompt-overlay').style.display = 'none';
   if (state.pendingInvite) {
@@ -1658,17 +1757,14 @@ function declineIncomingP2P() {
   }
 }
 
-// User accepts transfer
 async function acceptIncomingP2P() {
   document.getElementById('p2p-prompt-overlay').style.display = 'none';
   if (!state.pendingInvite) return;
   
   const invite = state.pendingInvite;
   state.pendingInvite = null;
-  
   const transferId = invite.transferId;
   
-  // Register receiver queue entry
   const transfer = {
     id: transferId,
     name: invite.fileName,
@@ -1684,11 +1780,9 @@ async function acceptIncomingP2P() {
     startTime: Date.now()
   };
   
-  // Timeout for connection (handshake failover)
   transfer.timeoutRef = setTimeout(() => {
     if (transfer.status === 'connecting' || (transfer.status === 'downloading' && transfer.receivedBytes === 0)) {
-      console.log('WebRTC Receiver connection timeout');
-      handleWebRTCFailure(invite.senderId, transferId, 'WebRTC handshake timed out.');
+      handleWebRTCFailure(invite.senderId, transferId, 'Timed out');
     }
   }, 12000);
   
@@ -1697,69 +1791,45 @@ async function acceptIncomingP2P() {
   updateTransferCountBadge();
   renderTransferQueue();
   
-  // Reply signaling target that we accept and wait for SDP Offer
-  sendSignal(invite.senderId, {
-    type: 'file-accept',
-    transferId
-  });
-  
-  // Listener is ready to build PeerConnection on incoming offer
-  state.rxTransferContext = {
-    transferId,
-    invite
-  };
+  sendSignal(invite.senderId, { type: 'file-accept', transferId });
+  state.rxTransferContext = { transferId, invite };
 }
 
-// Accept hook on Sender side is handled dynamically in handleIncomingSignal
-
-// SENDER SETUP
 async function startSenderPeerConnection(targetId, transferId) {
   const transfer = state.transfers.get(transferId);
   if (!transfer) return;
   
   transfer.status = 'connecting';
   transfer.peerId = targetId;
-  transfer.eta = 'Shaking hands...';
+  transfer.eta = 'Connecting...';
   renderTransferQueue();
   
   const connectionTimeout = setTimeout(() => {
     if (transfer.status === 'connecting' || transfer.status === 'pending-invite') {
-      console.log('WebRTC Sender connection timeout');
-      handleWebRTCFailure(targetId, transferId, 'WebRTC handshake timed out.');
+      handleWebRTCFailure(targetId, transferId, 'Timed out');
     }
   }, 12000);
   
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  });
-  
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
   state.peerConnections.set(targetId, pc);
   
   pc.onconnectionstatechange = () => {
-    console.log(`WebRTC Connection State [Sender]: ${pc.connectionState}`);
     if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
       clearTimeout(connectionTimeout);
-      handleWebRTCFailure(targetId, transferId, 'Connection failed.');
+      handleWebRTCFailure(targetId, transferId, 'Failed');
     }
   };
   
-  // Create P2P Data channel
   const dataChannel = pc.createDataChannel('file-transfer', { ordered: true });
   dataChannel.binaryType = 'arraybuffer';
   transfer.dataChannel = dataChannel;
   
   pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      sendSignal(targetId, {
-        type: 'candidate',
-        candidate: event.candidate
-      });
-    }
+    if (event.candidate) sendSignal(targetId, { type: 'candidate', candidate: event.candidate });
   };
   
   dataChannel.onopen = () => {
     clearTimeout(connectionTimeout);
-    console.log('WebRTC Data Channel opened!');
     transfer.status = 'uploading';
     transfer.startTime = Date.now();
     transmitP2PFile(transfer, targetId);
@@ -1767,32 +1837,25 @@ async function startSenderPeerConnection(targetId, transferId) {
   
   dataChannel.onclose = () => {
     clearTimeout(connectionTimeout);
-    console.log('WebRTC Data Channel closed');
     closePeerConnection(targetId);
   };
   
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  
-  sendSignal(targetId, {
-    type: 'offer',
-    sdp: offer,
-    transferId
-  });
+  sendSignal(targetId, { type: 'offer', sdp: offer, transferId });
 }
 
-// SENDER: Streams bytes directly onto RTC Data Channel using block-buffered high-performance mode with watchdog and prefetching
 function transmitP2PFile(transfer, targetId) {
   const channel = transfer.dataChannel;
   const file = transfer.file;
   
-  const CHUNK_SIZE = 64 * 1024; // 64KB chunks to optimize SCTP throughput
-  const BLOCK_SIZE = 4 * 1024 * 1024; // 4MB block reads to decrease async I/O wait cycles
-  const MAX_BUFFERED_AMOUNT = 8 * 1024 * 1024; // 8MB buffer limit for high throughput pipeline
-  const LOW_BUFFERED_AMOUNT = 2 * 1024 * 1024; // 2MB threshold to ensure buffer never runs dry
+  const CHUNK_SIZE = 64 * 1024;
+  const BLOCK_SIZE = 4 * 1024 * 1024;
+  const MAX_BUFFERED_AMOUNT = 8 * 1024 * 1024;
+  const LOW_BUFFERED_AMOUNT = 2 * 1024 * 1024;
   const PUMP_INTERVAL_MS = 5;
   let offset = 0;
-  let bytesTransmitted = 0; // Absolute track of sent bytes
+  let bytesTransmitted = 0;
   let bytesLastSent = 0;
   let timeLastCheck = Date.now();
   
@@ -1810,7 +1873,6 @@ function transmitP2PFile(transfer, targetId) {
     return slice.arrayBuffer();
   }
   
-  // Prefetch the very first block
   let nextBlockPromise = readNextBlock();
   
   async function fillAndSend() {
@@ -1824,30 +1886,23 @@ function transmitP2PFile(transfer, targetId) {
           isSending = false;
           return;
         }
-        
         if (channel.bufferedAmount >= MAX_BUFFERED_AMOUNT) {
           isSending = false;
           return;
         }
         
         if (!currentBlock || blockOffset >= currentBlock.byteLength) {
-          // Await the prefetched block
           const nextBlock = await nextBlockPromise;
           if (!nextBlock) {
-            // Signal completed transfer
-            if (transfer.watchdogInterval) {
-              clearInterval(transfer.watchdogInterval);
-              transfer.watchdogInterval = null;
-            }
+            if (transfer.watchdogInterval) clearInterval(transfer.watchdogInterval);
             setTimeout(() => {
               if (channel.readyState === 'open') {
                 channel.send(JSON.stringify({ type: 'tx-done' }));
                 transfer.status = 'completed';
                 transfer.eta = 'Done';
-                showToast(`P2P Send completed for ${transfer.name}`, 'success');
+                showToast(`P2P Send completed`, 'success');
                 renderTransferQueue();
                 updateTransferCountBadge();
-                renderFileList(); // Update files list to finalize UI
               }
             }, 500);
             isSending = false;
@@ -1855,8 +1910,6 @@ function transmitP2PFile(transfer, targetId) {
           }
           currentBlock = nextBlock;
           blockOffset = 0;
-          
-          // Immediately prefetch the next block in the background
           nextBlockPromise = readNextBlock();
         }
         
@@ -1868,15 +1921,13 @@ function transmitP2PFile(transfer, targetId) {
         
         channel.send(view);
         
-        // Speed metrics
         const now = Date.now();
         const duration = (now - timeLastCheck) / 1000;
         if (duration >= 0.5) {
           const currentSpeed = (bytesTransmitted - bytesLastSent) / duration;
           transfer.speed = currentSpeed;
-          timeLastCheck = now; // Fixed: update local tracking variable instead of transfer field
+          timeLastCheck = now;
           bytesLastSent = bytesTransmitted;
-          
           const remaining = file.size - bytesTransmitted;
           transfer.eta = currentSpeed > 0 ? formatETA(remaining / currentSpeed) : 'Calculating...';
         }
@@ -1884,7 +1935,6 @@ function transmitP2PFile(transfer, targetId) {
         transfer.progress = (bytesTransmitted / file.size) * 100;
         updateTransferItemUI(transfer.id);
         
-        // Yield after 12ms to keep the browser main UI thread responsive (aiming for 60fps)
         if (Date.now() - loopStart > 12) {
           isSending = false;
           setTimeout(fillAndSend, 0);
@@ -1892,34 +1942,25 @@ function transmitP2PFile(transfer, targetId) {
         }
       }
     } catch (err) {
-      console.error('Error in P2P transmission:', err);
+      console.error('P2P Send error:', err);
       isSending = false;
     }
   }
   
-  channel.onbufferedamountlow = () => {
-    fillAndSend();
-  };
+  channel.onbufferedamountlow = () => fillAndSend();
   
-  // Watchdog: pump quickly if bufferedamountlow is not fired by the browser.
-  const watchdogInterval = setInterval(() => {
-    if (!state.transfers.has(transfer.id) || channel.readyState !== 'open' || transfer.status !== 'uploading' || transfer.paused) {
-      clearInterval(watchdogInterval);
-      if (transfer.watchdogInterval === watchdogInterval) {
-        transfer.watchdogInterval = null;
-      }
+  const watchdog = setInterval(() => {
+    if (!state.transfers.has(transfer.id) || channel.readyState !== 'open' || transfer.status !== 'uploading') {
+      clearInterval(watchdog);
       return;
     }
-    if (channel.bufferedAmount < LOW_BUFFERED_AMOUNT) {
-      fillAndSend();
-    }
+    if (channel.bufferedAmount < LOW_BUFFERED_AMOUNT) fillAndSend();
   }, PUMP_INTERVAL_MS);
-  transfer.watchdogInterval = watchdogInterval;
+  transfer.watchdogInterval = watchdog;
   
-  fillAndSend(); // Kickoff
+  fillAndSend();
 }
 
-// RECEIVER SETUP
 async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
   const context = state.rxTransferContext;
   if (!context || context.invite.senderId !== senderId) return;
@@ -1927,26 +1968,18 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
   const transfer = state.transfers.get(context.transferId);
   if (!transfer) return;
   
-  const pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-  });
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
   state.peerConnections.set(senderId, pc);
   
   pc.onconnectionstatechange = () => {
-    console.log(`WebRTC Connection State [Receiver]: ${pc.connectionState}`);
     if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
       clearTimeout(transfer.timeoutRef);
-      handleWebRTCFailure(senderId, transferId, 'Connection failed.');
+      handleWebRTCFailure(senderId, transferId, 'Failed');
     }
   };
   
   pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      sendSignal(senderId, {
-        type: 'candidate',
-        candidate: event.candidate
-      });
-    }
+    if (event.candidate) sendSignal(senderId, { type: 'candidate', candidate: event.candidate });
   };
   
   pc.ondatachannel = (event) => {
@@ -1955,24 +1988,19 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
     let bytesLastCheck = 0;
     let timeLastCheck = Date.now();
     
-    channel.onopen = () => {
-      clearTimeout(transfer.timeoutRef);
-    };
+    channel.onopen = () => clearTimeout(transfer.timeoutRef);
     
     transfer.status = 'downloading';
     transfer.startTime = Date.now();
     
     channel.onmessage = (e) => {
       clearTimeout(transfer.timeoutRef);
-      // Check if message is EOF completion string
       if (typeof e.data === 'string') {
         try {
           const payload = JSON.parse(e.data);
           if (payload.type === 'tx-done') {
-            // Compile ArrayBuffers and trigger browser download
             const blob = new Blob(transfer.buffers, { type: context.invite.fileType || 'application/octet-stream' });
             const url = URL.createObjectURL(blob);
-            
             const a = document.createElement('a');
             a.href = url;
             a.download = transfer.name;
@@ -1984,22 +2012,18 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
             transfer.status = 'completed';
             transfer.progress = 100;
             transfer.eta = 'Done';
-            showToast(`P2P Download of ${transfer.name} finished!`, 'success');
+            showToast(`P2P Download finished!`, 'success');
             renderTransferQueue();
             updateTransferCountBadge();
-            renderFileList(); // Clear virtual list entries
-            
             closePeerConnection(senderId);
           }
         } catch(err) {}
         return;
       }
       
-      // Push binary buffer
       transfer.buffers.push(e.data);
       transfer.receivedBytes += e.data.byteLength;
       
-      // Speed indicators
       const now = Date.now();
       const elapsed = (now - timeLastCheck) / 1000;
       if (elapsed >= 0.5) {
@@ -2008,7 +2032,6 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
         transfer.speed = currentSpeed;
         timeLastCheck = now;
         bytesLastCheck = transfer.receivedBytes;
-        
         const remaining = transfer.size - transfer.receivedBytes;
         transfer.eta = currentSpeed > 0 ? formatETA(remaining / currentSpeed) : 'Calculating...';
       }
@@ -2019,43 +2042,29 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
   };
   
   await pc.setRemoteDescription(new RTCSessionDescription(sdpOffer));
-  
-  // Process queued ICE candidates that arrived early
   const queue = state.iceCandidateQueues.get(senderId) || [];
   for (const candidate of queue) {
     try {
-      if (candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      }
+      if (candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (e) {
-      console.error("Error adding queued candidate [Receiver]:", e);
+      console.error("Early candidate err:", e);
     }
   }
   state.iceCandidateQueues.delete(senderId);
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  
-  sendSignal(senderId, {
-    type: 'answer',
-    sdp: answer,
-    transferId
-  });
+  sendSignal(senderId, { type: 'answer', sdp: answer, transferId });
 }
 
-// User triggers send via Radar double click or drop
 function requestP2PFileShare(targetClientId) {
-  // Trigger file picker
   const input = document.createElement('input');
   input.type = 'file';
-  
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
     const transferId = 'p2p-tx-' + generateUUID();
-    
-    // Register sender card
     const transfer = {
       id: transferId,
       name: file.name,
@@ -2063,7 +2072,7 @@ function requestP2PFileShare(targetClientId) {
       type: 'Upload (P2P)',
       progress: 0,
       speed: 0,
-      eta: 'Waiting for peer...',
+      eta: 'Waiting peer...',
       status: 'pending-invite',
       peerId: targetClientId,
       file
@@ -2074,7 +2083,6 @@ function requestP2PFileShare(targetClientId) {
     updateTransferCountBadge();
     renderTransferQueue();
     
-    // Send invitation signal over WS
     sendSignal(targetClientId, {
       type: 'file-invite',
       transferId,
@@ -2082,29 +2090,24 @@ function requestP2PFileShare(targetClientId) {
       size: file.size,
       mimeType: file.type || 'application/octet-stream'
     });
-    
-    showToast(`Invite sent to peer for: ${file.name}`, 'info');
+    showToast(`Invite sent to peer`, 'info');
   };
-  
   input.click();
 }
 
 // --------------------------------------------------------------------------
-// 9. Peer Discovery Radar rendering
+// 11. Peer Discovery Radar rendering
 // --------------------------------------------------------------------------
 function renderRadarScreen() {
   const container = document.getElementById('radar-peers-container');
   container.innerHTML = '';
-  
   const totalPeers = state.peers.size;
   if (totalPeers === 0) return;
   
   let i = 0;
   state.peers.forEach((peer, id) => {
-    // Distribute angles evenly around radar host center
     const angle = (i * (2 * Math.PI)) / totalPeers;
-    const distancePercent = 35; // Position in middle ring (35% radius)
-    
+    const distancePercent = 35;
     const x = 50 + distancePercent * Math.cos(angle);
     const y = 50 + distancePercent * Math.sin(angle);
     
@@ -2115,19 +2118,12 @@ function renderRadarScreen() {
     peerNode.title = `Send file directly to ${peer.username}`;
     
     const iconClass = getAvatarIconClass(peer.avatar);
-    
     peerNode.innerHTML = `
-      <div class="radar-peer-dot">
-        <i class="bi ${iconClass}"></i>
-      </div>
+      <div class="radar-peer-dot"><i class="bi ${iconClass}"></i></div>
       <span class="radar-peer-label">${escapeHtml(peer.username)}</span>
     `;
     
-    // Click triggers P2P share request
-    peerNode.addEventListener('click', () => {
-      requestP2PFileShare(id);
-    });
-    
+    peerNode.addEventListener('click', () => requestP2PFileShare(id));
     container.appendChild(peerNode);
     i++;
   });
@@ -2135,12 +2131,11 @@ function renderRadarScreen() {
 
 function renderTextPeerList() {
   const list = document.getElementById('peers-text-list');
-  
   if (state.peers.size === 0) {
     list.innerHTML = `
       <div class="empty-peers text-center text-muted py-4">
         <i class="bi bi-broadcast display-4 d-block mb-3 animate-pulse"></i>
-        Searching for peers on your network... Connect another device to join the mesh.
+        Searching for peers on your network...
       </div>
     `;
     return;
@@ -2158,13 +2153,10 @@ function renderTextPeerList() {
             <div class="text-muted small">${escapeHtml(peer.deviceInfo.platform || 'LAN Node')}</div>
           </div>
         </div>
-        <button class="btn btn-secondary btn-sm p-1" title="Direct WebRTC Transfer">
-          <i class="bi bi-send-fill text-accent"></i>
-        </button>
+        <button class="btn btn-secondary btn-sm p-1"><i class="bi bi-send-fill text-accent"></i></button>
       </div>
     `;
   });
-  
   list.innerHTML = html;
 }
 
@@ -2180,7 +2172,7 @@ function getAvatarIconClass(avatarName) {
 }
 
 // --------------------------------------------------------------------------
-// 10. Active Transfers Queue UI rendering
+// 12. Active Transfers Queue UI rendering
 // --------------------------------------------------------------------------
 function renderTransferQueue() {
   const list = document.getElementById('transfer-queue-list');
@@ -2189,7 +2181,7 @@ function renderTransferQueue() {
     list.innerHTML = `
       <div class="empty-state text-center text-muted py-5">
         <i class="bi bi-activity display-4 d-block mb-3"></i>
-        No active uploads or downloads.
+        No active transfers.
       </div>
     `;
     return;
@@ -2201,33 +2193,31 @@ function renderTransferQueue() {
     const isFailed = tx.status === 'failed';
     const isPaused = tx.status === 'paused';
     
-    // Status text label builder
     let statusLabel = `${tx.type} - `;
     if (isCompleted) statusLabel += 'Completed';
     else if (isFailed) statusLabel += 'Failed';
     else if (isPaused) statusLabel += 'Paused';
     else statusLabel += `${tx.progress.toFixed(1)}%`;
     
-    // Action button renderers
     let actionsHtml = '';
-    if (!isCompleted && !isFailed && tx.type.includes('Server')) {
+    if (!isCompleted && !isFailed && (tx.type.includes('LAN') || tx.type.includes('Cloud'))) {
       actionsHtml = `
         <button class="btn btn-secondary btn-sm p-1" onclick="togglePauseUpload('${tx.id}')" title="${isPaused ? 'Resume' : 'Pause'}">
           <i class="bi ${isPaused ? 'bi-play-fill' : 'bi-pause-fill'}"></i>
         </button>
-        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="cancelTransfer('${tx.id}')" title="Stop and remove">
+        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="cancelTransfer('${tx.id}')" title="Cancel">
           <i class="bi bi-x-circle-fill"></i>
         </button>
       `;
     } else if (!isCompleted && !isFailed && tx.type.includes('P2P')) {
       actionsHtml = `
-        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="cancelTransfer('${tx.id}')" title="Stop direct transfer">
+        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="cancelTransfer('${tx.id}')" title="Cancel">
           <i class="bi bi-stop-circle-fill"></i>
         </button>
       `;
     } else {
       actionsHtml = `
-        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="removeTransfer('${tx.id}')" title="Remove from queue">
+        <button class="btn btn-secondary btn-sm p-1 text-danger" onclick="removeTransfer('${tx.id}')" title="Remove">
           <i class="bi bi-trash3-fill"></i>
         </button>
       `;
@@ -2240,9 +2230,7 @@ function renderTransferQueue() {
             <strong>${escapeHtml(tx.name)}</strong>
             <div class="transfer-meta-text">${statusLabel}</div>
           </div>
-          <div class="d-flex align-items-center gap-2">
-            ${actionsHtml}
-          </div>
+          <div class="d-flex align-items-center gap-2">${actionsHtml}</div>
         </div>
         <div class="progress-bar-outer">
           <div class="progress-bar-inner" id="tx-progress-${tx.id}" style="width: ${tx.progress}%"></div>
@@ -2255,21 +2243,16 @@ function renderTransferQueue() {
       </div>
     `;
   });
-  
   list.innerHTML = html;
 }
 
-// Live inline UI updates for active progress to prevent full container re-renders (smooth UI performance)
 function updateTransferItemUI(transferId) {
   const tx = state.transfers.get(transferId);
   if (!tx) return;
   
-  // Throttle DOM updates to at most once every 150ms per transfer to free up CPU for networking
   const now = Date.now();
-  const isFinalState = tx.progress >= 100 || tx.status === 'completed' || tx.status === 'failed' || tx.status === 'paused' || tx.status === 'assembling';
-  if (tx.lastUIUpdate && (now - tx.lastUIUpdate < 150) && !isFinalState) {
-    return;
-  }
+  const isFinalState = tx.progress >= 100 || ['completed', 'failed', 'paused', 'assembling'].includes(tx.status);
+  if (tx.lastUIUpdate && (now - tx.lastUIUpdate < 150) && !isFinalState) return;
   tx.lastUIUpdate = now;
   
   const progressEl = document.getElementById(`tx-progress-${transferId}`);
@@ -2293,7 +2276,6 @@ function updateTransferItemUI(transferId) {
     }
   }
   
-  // Update virtual progress badge in the file manager list table directly instead of re-rendering the whole table
   const badgeEl = document.getElementById(`file-badge-virtual-${transferId}`);
   if (badgeEl) {
     badgeEl.innerText = tx.status === 'assembling' ? 'Assembling...' : `${tx.progress.toFixed(0)}%`;
@@ -2301,16 +2283,30 @@ function updateTransferItemUI(transferId) {
 }
 
 function removeTransfer(transferId) {
-  const tx = state.transfers.get(transferId);
-  if (!tx) return;
-  if (tx.status !== 'completed' && tx.status !== 'failed') {
-    cancelTransfer(transferId);
-    return;
-  }
   state.transfers.delete(transferId);
   renderTransferQueue();
   updateTransferCountBadge();
   renderFileList();
+}
+
+function cancelTransfer(transferId) {
+  const transfer = state.transfers.get(transferId);
+  if (!transfer) return;
+  
+  if (!confirm(`Cancel upload of ${transfer.name}?`)) return;
+
+  if (transfer.activeXHRInstances) {
+    transfer.activeXHRInstances.forEach((xhr) => {
+      try { xhr.abort(); } catch (e) {}
+    });
+    transfer.activeXHRInstances.clear();
+  }
+
+  state.transfers.delete(transferId);
+  renderTransferQueue();
+  updateTransferCountBadge();
+  renderFileList();
+  showToast('Transfer cancelled', 'info');
 }
 
 function clearInactiveTransfers() {
@@ -2327,11 +2323,10 @@ function updateTransferCountBadge() {
   const badge = document.getElementById('badge-transfer-count');
   let active = 0;
   state.transfers.forEach(tx => {
-    if (tx.status === 'uploading' || tx.status === 'downloading' || tx.status === 'connecting' || tx.status === 'pending-invite' || tx.status === 'assembling') {
+    if (['uploading', 'downloading', 'connecting', 'pending-invite', 'assembling'].includes(tx.status)) {
       active++;
     }
   });
-  
   if (active > 0) {
     badge.innerText = active;
     badge.style.display = 'block';
@@ -2351,18 +2346,141 @@ function updatePeerCountBadge() {
 }
 
 // --------------------------------------------------------------------------
-// 11. Helper formatting utilities
+// 13. WebSockets Connection signaling
+// --------------------------------------------------------------------------
+function sendJoinMessage(otpCode = null) {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    const payload = {
+      type: 'join',
+      clientId: state.clientId,
+      username: state.username,
+      avatar: state.avatar,
+      deviceInfo: { platform: navigator.platform, userAgent: navigator.userAgent }
+    };
+    if (otpCode) {
+      payload.otp = otpCode;
+      state.otp = otpCode;
+    } else if (state.otp) {
+      payload.otp = state.otp;
+    }
+    state.ws.send(JSON.stringify(payload));
+  }
+}
+
+function initWebSocket() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const wsUrl = `${proto}://${location.host}/ws`;
+  
+  state.ws = new WebSocket(wsUrl);
+  
+  state.ws.onopen = () => {
+    document.getElementById('network-status-text').innerText = 'Connected';
+    document.getElementById('network-status-icon').className = 'bi bi-wifi text-success';
+    sendJoinMessage();
+  };
+  
+  state.ws.onclose = () => {
+    document.getElementById('network-status-text').innerText = 'Offline';
+    document.getElementById('network-status-icon').className = 'bi bi-wifi-off text-danger';
+    setTimeout(initWebSocket, 5000);
+  };
+  
+  state.ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      switch (msg.type) {
+        case 'auth-required':
+          // Re-route to security OTP screen overlay tab dynamically
+          document.getElementById('auth-overlay').style.display = 'flex';
+          const otpTabBtn = document.getElementById('auth-tab-otp');
+          if (otpTabBtn) otpTabBtn.click();
+          break;
+          
+        case 'auth-failed':
+          document.getElementById('auth-overlay').style.display = 'flex';
+          const errEl = document.getElementById('auth-error-msg');
+          errEl.innerText = msg.message || 'Incorrect OTP code. Please try again.';
+          errEl.style.display = 'block';
+          break;
+          
+        case 'auth-success':
+          document.getElementById('auth-overlay').style.display = 'none';
+          fetchFiles();
+          fetchServerSettings();
+          fetchUserBillingPlan();
+          break;
+          
+        case 'otp-updated':
+          if (state.isHost) {
+            document.getElementById('radar-otp-code').innerText = msg.otp || '------';
+            state.activeOTP = msg.otp;
+            showToast('Security OTP refreshed successfully', 'success');
+            if (state.activeWindows['share']) {
+              populateShareHubAddresses();
+            }
+          }
+          break;
+          
+        case 'welcome':
+          state.isHost = msg.isHost || false;
+          if (state.isHost) {
+            document.getElementById('radar-otp-banner').style.display = 'flex';
+            document.getElementById('radar-otp-code').innerText = msg.activeOTP || '------';
+            state.activeOTP = msg.activeOTP;
+            if (state.activeWindows['share']) {
+              populateShareHubAddresses();
+            }
+          } else {
+            document.getElementById('radar-otp-banner').style.display = 'none';
+          }
+          
+          state.peers.clear();
+          msg.clients.forEach(c => state.peers.set(c.id, c));
+          renderRadarScreen();
+          renderTextPeerList();
+          updatePeerCountBadge();
+          break;
+          
+        case 'user-joined':
+          state.peers.set(msg.client.id, msg.client);
+          showToast(`${msg.client.username} has joined LAN`, 'info');
+          renderRadarScreen();
+          renderTextPeerList();
+          updatePeerCountBadge();
+          break;
+          
+        case 'user-left':
+          const peer = state.peers.get(msg.clientId);
+          if (peer) {
+            showToast(`${peer.username} left LAN`, 'info');
+            state.peers.delete(msg.clientId);
+            closePeerConnection(msg.clientId);
+          }
+          renderRadarScreen();
+          renderTextPeerList();
+          updatePeerCountBadge();
+          break;
+          
+        case 'signal':
+          handleIncomingSignal(msg.senderId, msg.data);
+          break;
+      }
+    } catch (e) {
+      console.error('WS payload error:', e);
+    }
+  };
+}
+
+// --------------------------------------------------------------------------
+// 14. Helper formatting utilities
 // --------------------------------------------------------------------------
 function formatBytes(bytes, decimals = 2) {
   if (bytes === 0 || !bytes || isNaN(bytes) || bytes < 0) return '0 Bytes';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  if (bytes < 1) {
-    return parseFloat(bytes.toFixed(dm)) + ' Bytes';
-  }
+  if (bytes < 1) return parseFloat(bytes.toFixed(dm)) + ' Bytes';
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  if (i < 0) return parseFloat(bytes.toFixed(dm)) + ' Bytes';
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
@@ -2372,7 +2490,6 @@ function formatETA(seconds) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
@@ -2380,8 +2497,7 @@ function formatETA(seconds) {
 
 function escapeHtml(text) {
   if (!text) return '';
-  return text
-    .toString()
+  return text.toString()
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -2389,27 +2505,19 @@ function escapeHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
-// Global UI slide-in toast notifications
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = `sys-toast toast-${type}`;
-  
   const icons = {
     success: 'bi-check-circle-fill',
     error: 'bi-exclamation-triangle-fill',
     info: 'bi-info-circle-fill'
   };
   const icon = icons[type] || 'bi-info-circle-fill';
-  
-  toast.innerHTML = `
-    <i class="bi ${icon}"></i>
-    <span>${escapeHtml(message)}</span>
-  `;
-  
+  toast.innerHTML = `<i class="bi ${icon}"></i><span>${escapeHtml(message)}</span>`;
   container.appendChild(toast);
   
-  // Slide out and remove
   setTimeout(() => {
     toast.style.opacity = '0';
     toast.style.transform = 'translateY(-10px)';
@@ -2418,7 +2526,7 @@ function showToast(message, type = 'info') {
 }
 
 // --------------------------------------------------------------------------
-// 16. Start Menu & Connection Share Hub Functionality
+// 15. Start Menu & Connection Share Hub
 // --------------------------------------------------------------------------
 function initStartMenuAndShareHub() {
   const btnStart = document.getElementById('btn-start');
@@ -2432,7 +2540,6 @@ function initStartMenuAndShareHub() {
       btnStart.classList.toggle('active', !isOpen);
     });
     
-    // Hide start menu on click outside
     document.addEventListener('click', (e) => {
       if (!startMenu.contains(e.target) && e.target !== btnStart && !btnStart.contains(e.target)) {
         startMenu.style.display = 'none';
@@ -2441,14 +2548,12 @@ function initStartMenuAndShareHub() {
     });
   }
   
-  // Bind start menu item clicks
   const bindStartItem = (id, windowName) => {
     const el = document.getElementById(id);
     if (el) {
       el.addEventListener('click', () => {
         if (startMenu) startMenu.style.display = 'none';
         if (btnStart) btnStart.classList.remove('active');
-        
         if (windowName === 'share') {
           openShareHub();
         } else {
@@ -2464,118 +2569,108 @@ function initStartMenuAndShareHub() {
   bindStartItem('start-item-settings', 'settings');
   bindStartItem('start-item-help', 'help');
   
+  // Register logout in restart
   const restartBtn = document.getElementById('start-btn-restart');
   if (restartBtn) {
-    restartBtn.addEventListener('click', () => {
-      if (confirm('Are you sure you want to refresh the server connection links? This will reload the web UI.')) {
+    restartBtn.addEventListener('click', async () => {
+      if (confirm('Log out from AeroSync?')) {
+        await secureFetch('/api/auth/logout', { method: 'POST' });
+        safeLocalStorage.setItem('aerosync_session_token', '');
         location.reload();
       }
     });
+    restartBtn.innerHTML = '<i class="bi bi-box-arrow-right"></i> Log Out';
   }
 }
 
-function openShareHub() {
+async function openShareHub(overrideUrl = null, overrideLabel = null) {
   openWindow('share');
-  populateShareHubAddresses();
+  if (!state.serverSettings) {
+    await fetchServerSettings();
+  }
+  populateShareHubAddresses(overrideUrl, overrideLabel);
 }
 
-function populateShareHubAddresses() {
+function populateShareHubAddresses(overrideUrl = null, overrideLabel = null) {
   const container = document.getElementById('share-addresses-list');
-  if (!container || !state.serverSettings) return;
+  if (!container) return;
   
-  const settings = state.serverSettings;
+  const settings = state.serverSettings || { port: location.port || 5000 };
   const addresses = [];
   
-  // 1. Add public tunnel if active
-  if (settings.publicTunnelUrl) {
-    addresses.push({
-      label: 'Public Tunnel (Remote Connect)',
-      url: settings.publicTunnelUrl
-    });
-  }
+  const otpParam = state.activeOTP ? `?otp=${state.activeOTP}` : '';
   
-  // 2. Add local LAN interfaces
+  if (settings.publicTunnelUrl) {
+    addresses.push({ label: 'Public Tunnel (Remote)', url: settings.publicTunnelUrl + otpParam });
+  }
   if (settings.networkAddresses && settings.networkAddresses.length > 0) {
     settings.networkAddresses.forEach(ip => {
-      addresses.push({
-        label: `LAN: ${ip.interface} (${ip.type || 'Wi-Fi'})`,
-        url: `http://${ip.address}:${settings.port}`
-      });
+      addresses.push({ label: `LAN: ${ip.interface} (${ip.type})`, url: `http://${ip.address}:${settings.port}${otpParam}` });
     });
   }
   
   if (addresses.length === 0) {
-    container.innerHTML = `<div class="text-muted small text-center py-2">No connection interfaces detected.</div>`;
-    return;
+    // Fallback to the current host origin to ensure a QR code is always generated
+    addresses.push({ label: 'Current Origin', url: location.origin + otpParam });
   }
   
-  container.innerHTML = addresses.map((addr, idx) => `
+  container.innerHTML = addresses.map((addr) => `
     <div class="share-address-row">
       <div class="share-address-info">
         <span class="share-address-name">${escapeHtml(addr.label)}</span>
         <span class="share-address-url">${escapeHtml(addr.url)}</span>
       </div>
       <div class="share-actions-group">
-        <button class="btn btn-secondary btn-sm p-1" style="padding: 4px 8px; font-size: 11px;" title="Scan QR Code" onclick="updateShareQrCode('${escapeHtml(addr.url)}', '${escapeHtml(addr.label)}')">
-          <i class="bi bi-qr-code"></i>
-        </button>
-        <button class="btn btn-secondary btn-sm p-1" style="padding: 4px 8px; font-size: 11px;" title="Copy Link" onclick="copyToClipboard('${escapeHtml(addr.url)}')">
-          <i class="bi bi-clipboard"></i>
-        </button>
+        <button class="btn btn-secondary btn-sm p-1" onclick="updateShareQrCode('${escapeHtml(addr.url)}', '${escapeHtml(addr.label)}')"><i class="bi bi-qr-code"></i></button>
+        <button class="btn btn-secondary btn-sm p-1" onclick="copyToClipboard('${escapeHtml(addr.url)}')"><i class="bi bi-clipboard"></i></button>
       </div>
     </div>
   `).join('');
   
-  // Load default QR (first link)
-  updateShareQrCode(addresses[0].url, addresses[0].label);
+  if (overrideUrl) {
+    updateShareQrCode(overrideUrl, overrideLabel);
+  } else {
+    updateShareQrCode(addresses[0].url, addresses[0].label);
+  }
 }
 
-// Declared globally so inline HTML onclick handlers can trigger them
 window.updateShareQrCode = function(url, label) {
   const qrContainer = document.getElementById('share-qr-container');
   const qrLabel = document.getElementById('share-qr-label');
   if (!qrContainer || !qrLabel) return;
   
   qrLabel.innerText = label;
-  qrContainer.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
-      <div class="spinner-border text-primary" style="width: 2rem; height: 2rem; border: 3px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: sweep-spin 0.8s linear infinite;" role="status">
-        <span style="display: none;">Loading...</span>
-      </div>
-      <span class="text-muted" style="font-size: 9px;">Generating...</span>
-    </div>
-  `;
+  qrContainer.innerHTML = '';
   
-  const img = new Image();
-  img.onload = () => {
-    qrContainer.innerHTML = '';
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.objectFit = 'contain';
-    img.style.display = 'block';
-    img.style.borderRadius = '4px';
-    img.alt = `QR Code for ${url}`;
-    qrContainer.appendChild(img);
-  };
-  img.onerror = () => {
-    qrContainer.innerHTML = `<span class="text-danger small" style="font-size: 10px; font-weight: 600;">Failed to generate QR Code.</span>`;
-  };
-  // Use public qrserver API
-  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(url)}`;
+  const canvas = document.createElement('canvas');
+  canvas.style.display = 'block';
+  canvas.style.width = '150px';
+  canvas.style.height = '150px';
+  qrContainer.appendChild(canvas);
+  
+  const qrLink = document.getElementById('share-qr-link');
+  if (qrLink) qrLink.href = url;
+  
+  new QRious({
+    element: canvas,
+    value: url,
+    size: 150
+  });
 };
 
 window.openShareHubWithUrl = function(url, label) {
-  openShareHub();
-  window.updateShareQrCode(url, label);
+  let finalUrl = url;
+  if (state.activeOTP && !url.includes('otp=')) {
+    finalUrl = url + (url.includes('?') ? '&' : '?') + `otp=${state.activeOTP}`;
+  }
+  openShareHub(finalUrl, label);
 };
 
 window.copyToClipboard = function(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text)
-      .then(() => showToast('Link copied to clipboard!', 'success'))
-      .catch((err) => {
-        fallbackCopyToClipboard(text);
-      });
+      .then(() => showToast('Copied to clipboard!', 'success'))
+      .catch(() => fallbackCopyToClipboard(text));
   } else {
     fallbackCopyToClipboard(text);
   }
@@ -2592,8 +2687,148 @@ function fallbackCopyToClipboard(text) {
     el.select();
     document.execCommand('copy');
     document.body.removeChild(el);
-    showToast('Link copied to clipboard (fallback)!', 'success');
+    showToast('Copied to clipboard!', 'success');
   } catch (err) {
-    showToast('Failed to copy link.', 'error');
+    showToast('Failed to copy', 'error');
+  }
+}
+
+// --------------------------------------------------------------------------
+// Quota & Billing Plan Upgrades Logic
+// --------------------------------------------------------------------------
+async function fetchUserBillingPlan() {
+  try {
+    const res = await secureFetch('/api/billing/plan');
+    if (!res.ok) return;
+    const data = await res.json();
+    
+    // Update Billing Modal UI
+    const currentPlanEl = document.getElementById('billing-current-plan');
+    if (currentPlanEl) {
+      currentPlanEl.innerText = data.planName;
+    }
+
+    // Update explorer sidebar metrics
+    const sidebarPlanName = document.getElementById('sidebar-plan-name');
+    const sidebarStorageUsage = document.getElementById('sidebar-storage-usage');
+    const sidebarStorageBar = document.getElementById('sidebar-storage-bar');
+
+    if (sidebarPlanName) sidebarPlanName.innerText = data.planName;
+    
+    let displayLimit = data.storageLimitBytes;
+    if (data.planId === 'free' || data.storageLimitBytes < 10 * 1024 * 1024) {
+      displayLimit = 1073741824; // 1 GB for demo / Free plan
+    }
+
+    if (sidebarStorageUsage) {
+      sidebarStorageUsage.innerText = `${formatBytes(data.usedStorageBytes)} / ${formatBytes(displayLimit)}`;
+    }
+    if (sidebarStorageBar) {
+      const percentage = Math.min(100, (data.usedStorageBytes / displayLimit) * 100);
+      sidebarStorageBar.style.width = `${percentage}%`;
+      if (percentage > 90) {
+        sidebarStorageBar.style.backgroundColor = '#ff5f5f';
+      } else {
+        sidebarStorageBar.style.backgroundColor = 'var(--accent)';
+      }
+    }
+  } catch (err) {
+    console.error('[Billing Plan Fetch Error]', err);
+  }
+}
+
+function updateTransferModeUI() {
+  const modeSelect = document.querySelector('input[name="transfer-mode-select"]:checked');
+  const modeVal = modeSelect ? modeSelect.value : 'lan';
+  const cloudFields = document.getElementById('sidebar-cloud-fields');
+  const lanInfo = document.getElementById('sidebar-lan-info');
+
+  if (modeVal === 'lan') {
+    if (cloudFields) cloudFields.style.display = 'none';
+    if (lanInfo) lanInfo.style.display = 'block';
+  } else {
+    if (cloudFields) cloudFields.style.display = 'block';
+    if (lanInfo) lanInfo.style.display = 'none';
+  }
+}
+
+async function handlePlanUpgrade(planId) {
+  try {
+    showToast('Initializing secure checkout...', 'info');
+    const res = await secureFetch('/api/billing/create-subscription', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId })
+    });
+    
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to initialize subscription checkout');
+    }
+    
+    const data = await res.json();
+    
+    // If it's a mock subscription, simulate payment success directly
+    if (data.id.startsWith('sub_mock_')) {
+      showToast('Mock checkout triggered. Processing payment...', 'info');
+      
+      const webhookRes = await secureFetch('/api/billing/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'subscription.activated',
+          isMockTest: true,
+          userId: state.user ? state.user.id : 'host',
+          planId: planId,
+          subscriptionId: data.id,
+          payload: {
+            subscription: {
+              entity: {
+                id: data.id,
+                notes: {
+                  userId: state.user ? state.user.id : 'host',
+                  planId: planId
+                }
+              }
+            }
+          }
+        })
+      });
+
+      if (webhookRes.ok) {
+        showToast('Payment successful! Your plan has been upgraded.', 'success');
+        fetchUserBillingPlan();
+      } else {
+        showToast('Mock payment processing failed.', 'error');
+      }
+      return;
+    }
+
+    const options = {
+      key: data.razorpayKeyId || 'rzp_test_mockkey123',
+      subscription_id: data.id,
+      name: 'AeroSync File Transfer',
+      description: `Upgrade to ${planId.toUpperCase()} Plan`,
+      image: 'favicon.ico',
+      handler: async function (response) {
+        showToast('Payment captured. Verifying transaction...', 'info');
+        setTimeout(() => {
+          fetchUserBillingPlan();
+          showToast('Storage capacity updated!', 'success');
+        }, 1500);
+      },
+      prefill: {
+        name: state.user ? state.user.username : '',
+        email: state.user ? state.user.email : ''
+      },
+      theme: {
+        color: '#00d2ff'
+      }
+    };
+    
+    const rzp = new Razorpay(options);
+    rzp.open();
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }

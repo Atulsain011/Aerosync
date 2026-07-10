@@ -3,8 +3,8 @@ const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { generateConnectionQR, generateQRCodeBuffer } = require('./utils/qr');
-const { getActiveOTP } = require('./signaling');
+const { generateQRCode, generateQRCodeBuffer } = require('./utils/qr');
+const { getActiveOTP, getOrCreateRoom } = require('./signaling');
 
 // Helper to load current settings
 function getSettings() {
@@ -21,23 +21,32 @@ function getSettings() {
 
 /**
  * GET /api/qr/connection
- * Return dynamic connection data with active OTP and generated QR base64
+ * Return dynamic connection data with active OTP, roomId, joinToken, and generated QR base64
  */
 router.get('/connection', async (req, res) => {
   try {
     const settings = getSettings();
     const port = process.env.PORT || settings.port || 5000;
-    const otp = getActiveOTP() || '000000';
     const deviceName = settings.deviceName || os.hostname();
 
-    const result = await generateConnectionQR(port, otp);
+    const hostClientId = req.query.clientId || 'default';
+    const room = getOrCreateRoom(hostClientId);
+    const roomId = 'room_' + hostClientId;
+
+    const origin = req.protocol + '://' + req.get('host');
+    const joinURL = `${origin}/join?roomId=${roomId}&joinToken=${room.joinToken}`;
+    
+    // Generate QR code base64 URL
+    const qrCodeBase64 = await generateQRCode(joinURL, { width: 300 });
 
     res.json({
-      qrCode: result.qrCode,
-      otp: otp,
-      connectionData: result.connectionData,
-      deviceName: deviceName,
-      connectionURL: result.connectionURL
+      qrCode: qrCodeBase64,
+      otp: room.otp,
+      roomId: roomId,
+      joinToken: room.joinToken,
+      joinURL: joinURL,
+      expiresIn: Math.max(0, Math.round((room.tokenExpiresAt - Date.now()) / 1000)),
+      deviceName: deviceName
     });
   } catch (err) {
     console.error('Failed to get connection QR:', err);

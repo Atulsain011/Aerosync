@@ -627,19 +627,55 @@
         <div class="window-body p-3 share-window-body" style="display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: calc(100% - 36px); box-sizing: border-box;">
           <div class="text-center">
             <h6 class="mb-1 text-white" style="font-size: 14px; font-weight: 600;">Scan to Connect Device</h6>
-            <p class="text-secondary small mb-3" style="font-size: 11px;">Connect your phone or client computer to the same Wi-Fi, then scan the QR code to open the share interface.</p>
+            <p class="text-secondary small mb-3" style="font-size: 11px;">Connect your phone or another laptop to transfer files directly. Scan QR or enter code.</p>
           </div>
           
-          <div class="share-qr-pane" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,0.15); border: var(--window-border); padding: 15px; border-radius: 8px;">
-            <a id="share-qr-link" href="#" target="_blank" style="text-decoration: none; cursor: pointer; display: block;" title="Click to open link in a new tab">
-              <div id="share-qr-container" style="background: white; padding: 10px; border-radius: 8px; width: 170px; height: 170px; display: flex; align-items: center; justify-content: center; box-sizing: border-box;">
-                <canvas id="share-qr-canvas" style="display: block; width: 150px; height: 150px;"></canvas>
+          <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: stretch; justify-content: center;">
+            <!-- Left Side: QR Code -->
+            <div class="share-qr-pane" style="flex: 1; min-width: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(0,0,0,0.15); border: var(--window-border); padding: 15px; border-radius: 8px; box-sizing: border-box;">
+              <a id="share-qr-link" href="#" target="_blank" style="text-decoration: none; cursor: pointer; display: block;" title="Click to open link in a new tab">
+                <div id="share-qr-container" style="background: white; padding: 10px; border-radius: 8px; width: 150px; height: 150px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+                  <canvas id="share-qr-canvas" style="display: block; width: 130px; height: 130px;"></canvas>
+                </div>
+              </a>
+              <strong id="share-qr-label" class="text-accent small mt-1" style="color: var(--accent); font-size: 11px;">Loading Link...</strong>
+              <div id="share-qr-countdown" class="text-secondary mt-1" style="font-size: 10px; font-weight: 500;">Token expires in: --:--</div>
+            </div>
+            
+            <!-- Right Side: Join Code & Actions -->
+            <div style="flex: 1.2; min-width: 200px; display: flex; flex-direction: column; gap: 12px; background: rgba(0,0,0,0.15); border: var(--window-border); padding: 15px; border-radius: 8px; box-sizing: border-box; justify-content: space-between;">
+              <div class="text-center" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex-grow: 1;">
+                <span class="text-secondary small" style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Short Join Code</span>
+                <div id="share-join-code" class="text-accent" style="color: var(--accent); font-size: 32px; font-weight: 700; font-family: monospace; letter-spacing: 4px; margin: 5px 0;">------</div>
               </div>
-            </a>
-            <strong id="share-qr-label" class="text-accent small mt-2" style="color: var(--accent); font-size: 11px;">Local LAN Connection</strong>
+              
+              <!-- Buttons -->
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button class="btn btn-secondary btn-sm w-100" id="btn-copy-join-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; padding: 6px; font-family: inherit;">
+                  <i class="bi bi-link-45deg"></i> Copy Join Link
+                </button>
+                <button class="btn btn-secondary btn-sm w-100" id="btn-copy-join-code" style="display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; padding: 6px; font-family: inherit;">
+                  <i class="bi bi-clipboard"></i> Copy Join Code
+                </button>
+                <button class="btn btn-secondary btn-sm w-100" id="btn-web-share-link" style="display: none; align-items: center; justify-content: center; gap: 6px; font-size: 11px; padding: 6px; font-family: inherit;">
+                  <i class="bi bi-share"></i> Share Join Link
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div class="share-links-list" style="display: flex; flex-direction: column; gap: 6px;">
+          <!-- Connected Devices List -->
+          <div style="background: rgba(0,0,0,0.2); border: var(--window-border); padding: 12px; border-radius: 8px;">
+            <h6 class="text-white mb-2" style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; margin: 0 0 8px 0;">
+              <span class="pulse-green-dot" style="display: inline-block; width: 6px; height: 6px; background-color: #2ecc71; border-radius: 50%; box-shadow: 0 0 8px #2ecc71;"></span>
+              Connected Devices
+            </h6>
+            <div id="share-connected-devices-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto;">
+              <div class="text-muted small text-center py-1">No paired devices. Scan QR or enter code to pair.</div>
+            </div>
+          </div>
+
+          <div class="share-links-list" style="display: flex; flex-direction: column; gap: 6px; display: none;">
             <label class="form-label mb-1" style="font-size: 11px;">Select Network Interface Connection</label>
             <div id="share-addresses-list" style="display: flex; flex-direction: column; gap: 8px;">
               <!-- Populated dynamically via JS -->
@@ -845,6 +881,30 @@
     </div>
   </div>
 
+  <!-- Custom File Delete Confirmation Modal -->
+  <div class="prompt-overlay" id="delete-confirm-overlay" style="display: none; z-index: 1000001;">
+    <div class="prompt-dialog" style="max-width: 400px; width: 90%; background: rgba(16, 22, 34, 0.95); border: 1px solid var(--accent); box-shadow: 0 20px 50px rgba(0,0,0,0.7); backdrop-filter: blur(20px);">
+      <div class="prompt-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 15px;">
+        <h5 class="text-white" style="margin: 0; font-family: 'Outfit', sans-serif;"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>Delete File</h5>
+      </div>
+      <div class="prompt-body">
+        <p class="text-secondary small mb-3">Delete this file permanently?</p>
+        <div class="prompt-file-card" style="margin-bottom: 10px;">
+          <i class="bi bi-file-earmark text-danger"></i>
+          <div class="prompt-file-info">
+            <h6 id="delete-confirm-file-name" class="text-white" style="margin: 0; font-size: 13px;">file.txt</h6>
+            <span id="delete-confirm-file-size" class="text-muted small">0 B</span>
+          </div>
+        </div>
+        <p class="text-danger small mt-2" style="font-size: 10px;">Warning: This action is permanent and cannot be undone.</p>
+      </div>
+      <div class="prompt-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 15px;">
+        <button class="btn btn-secondary" id="btn-cancel-delete" style="padding: 6px 12px; font-size: 11px;">Cancel</button>
+        <button class="btn btn-primary" id="btn-confirm-delete" style="background: #ef4444; border-color: #ef4444; padding: 6px 12px; font-size: 11px;">Delete Permanently</button>
+      </div>
+    </div>
+  </div>
+
   <!-- File Access Management Modal -->
   <div class="prompt-overlay" id="share-access-overlay" style="display: none; z-index: 1000000;">
     <div class="prompt-dialog" style="max-width: 500px; width: 95%; background: rgba(16, 22, 34, 0.95); border: 1px solid var(--accent); box-shadow: 0 20px 50px rgba(0,0,0,0.7); backdrop-filter: blur(20px);">
@@ -878,12 +938,17 @@
 
         <!-- Expiring Public Link QR -->
         <h6 class="text-white mb-2" style="font-size: 13px; font-weight: 600; margin: 0 0 8px 0;">Generate Public Share Link</h6>
-        <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center;">
+        <div style="display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap;">
           <label style="font-size: 11px; color: #ccc; margin: 0;">Expires in:</label>
           <select id="pub-expiry-select" style="background: rgba(16, 22, 34, 0.95); border: var(--window-border); color: #fff; padding: 4px; border-radius: 4px; outline: none; font-size: 11px; cursor: pointer;">
             <option value="1">1 Hour</option>
             <option value="12">12 Hours</option>
             <option value="24" selected>24 Hours</option>
+          </select>
+          <label style="font-size: 11px; color: #ccc; margin: 0;">Access:</label>
+          <select id="pub-permission-select" style="background: rgba(16, 22, 34, 0.95); border: var(--window-border); color: #fff; padding: 4px; border-radius: 4px; outline: none; font-size: 11px; cursor: pointer;">
+            <option value="download" selected>View & Download</option>
+            <option value="view">View Only</option>
           </select>
           <button class="btn btn-secondary btn-sm" id="btn-gen-pub-link" style="padding: 4px 10px; font-size: 11px; border-radius: 4px;">Generate Link</button>
         </div>

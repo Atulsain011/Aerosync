@@ -7,6 +7,7 @@ const DB_PATH = path.join(process.cwd(), 'database.json');
 
 // Memory representation of the database tables
 const db = {
+  cancelledSessions: new Set(),
   users: [],
   files: [],
   file_access: [],

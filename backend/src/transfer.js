@@ -14,6 +14,30 @@ const { isLocalAddress } = require('./utils/network');
 const { activeSessions } = require('./auth');
 const mockCloud = require('./mockCloud');
 
+function sendWebSocketMessageToUser(userId, messageObj) {
+  try {
+    clients.forEach((c) => {
+      if (c.socket && c.socket.userId === userId && c.socket.readyState === 1) {
+        c.socket.send(JSON.stringify(messageObj));
+      }
+    });
+  } catch (err) {
+    console.error('Failed to send WebSocket message:', err);
+  }
+}
+
+function broadcastWebSocketMessage(messageObj) {
+  try {
+    clients.forEach((c) => {
+      if (c.socket && c.socket.readyState === 1) {
+        c.socket.send(JSON.stringify(messageObj));
+      }
+    });
+  } catch (err) {
+    console.error('Failed to broadcast WebSocket message:', err);
+  }
+}
+
 const CONFIG = {
   MAX_CHUNK_SIZE: 150 * 1024 * 1024,
   SESSION_TIMEOUT: 24 * 60 * 60 * 1000,
@@ -134,7 +158,7 @@ const upload = multer({
 // UPLOAD ROUTE: LAN MODE INIT
 // ============================================================
 router.post('/upload/init', async (req, res) => {
-  const { name, size, totalChunks, uploadId, receiverClientId, receiverUserId } = req.body;
+  const { name, size, totalChunks, uploadId, receiverClientId, receiverUserId, clientHash } = req.body;
 
   if (!name || !size || !totalChunks || !uploadId) {
     return res.status(400).json({ error: 'Missing required initialization parameters' });
@@ -166,6 +190,7 @@ router.post('/upload/init', async (req, res) => {
       uploadId,
       owner_user_id: ownerId,
       receiver_user_id: resolvedReceiverId,
+      clientHash,
       initializedAt: Date.now()
     };
 
@@ -239,6 +264,9 @@ router.post('/upload/chunk/raw', express.raw({ type: 'application/octet-stream',
   const contentRange = req.headers['content-range'];
 
   try {
+    if (db.cancelledSessions && db.cancelledSessions.has(uploadId)) {
+      return res.status(400).json({ error: 'Upload session has been cancelled' });
+    }
     const settings = loadSettings();
     const ownerId = req.user.id;
     const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
@@ -366,6 +394,13 @@ router.post('/upload/complete', async (req, res) => {
       stream.on('error', reject);
     });
 
+    if (meta.clientHash && hash !== meta.clientHash) {
+      await fsPromises.rm(finalPath, { force: true }).catch(() => {});
+      await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      localUploads.delete(uploadId);
+      return res.status(400).json({ error: 'File corrupted. Checksum mismatch.' });
+    }
+
     // Cleanup temp chunks
     await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     localUploads.delete(uploadId);
@@ -472,12 +507,19 @@ router.post('/upload/batch-init', async (req, res) => {
 router.delete('/upload/:uploadId', async (req, res) => {
   const { uploadId } = req.params;
   try {
+    if (db.cancelledSessions) {
+      db.cancelledSessions.add(uploadId);
+    }
     localUploads.delete(uploadId);
     const settings = loadSettings();
     const ownerId = req.user.id;
     const tempDir = path.join(settings.sharedDirectory, `user_${ownerId}`, '.tmp', uploadId);
     if (fs.existsSync(tempDir)) {
       await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+    const cloudTempDir = path.join(process.cwd(), 'cloud_storage', '.tmp', uploadId);
+    if (fs.existsSync(cloudTempDir)) {
+      await fsPromises.rm(cloudTempDir, { recursive: true, force: true }).catch(() => {});
     }
     res.json({ message: 'Upload session cancelled successfully', uploadId });
   } catch (err) {
@@ -490,7 +532,7 @@ router.delete('/upload/:uploadId', async (req, res) => {
 // UPLOAD ROUTE: PRIVATE CLOUD MODE INIT
 // ============================================================
 router.post('/upload/init-cloud', async (req, res) => {
-  const { name, size, totalChunks, uploadId } = req.body;
+  const { name, size, totalChunks, uploadId, clientHash } = req.body;
 
   if (!name || !size || !totalChunks || !uploadId) {
     return res.status(400).json({ error: 'Missing required parameters' });
@@ -523,7 +565,8 @@ router.post('/upload/init-cloud', async (req, res) => {
       storage_type: 'cloud',
       status: 'uploading',
       total_chunks: parseInt(totalChunks, 10),
-      completed_chunks: []
+      completed_chunks: [],
+      clientHash
     });
 
     // Placeholder file entry
@@ -584,6 +627,14 @@ router.post('/upload/complete-cloud', async (req, res) => {
       stream.on('end', () => resolve(sha.digest('hex')));
       stream.on('error', reject);
     });
+
+    if (session.clientHash && hash !== session.clientHash) {
+      await fsPromises.rm(destPath, { force: true }).catch(() => {});
+      db.files = db.files.filter(f => f.id !== fileId);
+      db.upload_sessions = db.upload_sessions.filter(s => s.upload_id !== uploadId);
+      saveDb();
+      return res.status(400).json({ error: 'File corrupted. Checksum mismatch.' });
+    }
 
     // Update DB file state
     fileRecord.hash = hash;
@@ -703,6 +754,9 @@ router.delete('/files/:fileId', (req, res) => {
   // Log audit
   addAuditLog(fileId, currentUserId, 'delete', `Deleted file '${file.name}' permanently.`);
 
+  // Broadcast deletion to update all clients
+  broadcastWebSocketMessage({ type: 'file_deleted', fileId });
+
   res.json({ success: true, message: 'File deleted successfully' });
 });
 
@@ -740,6 +794,7 @@ const downloadFileHandler = async (req, res) => {
       }
       res.sendFile(filePath, {
         headers: {
+          'Content-Type': file.mimeType || 'application/octet-stream',
           'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
         }
       });
@@ -816,9 +871,15 @@ router.post('/files/:id/share', (req, res) => {
     return res.status(403).json({ error: 'Forbidden: Only file owner can share it' });
   }
 
-  const targetUser = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+  const cleanEmail = email.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: 'Enter a valid email address.' });
+  }
+
+  const targetUser = db.users.find(u => u.email.toLowerCase() === cleanEmail);
   if (!targetUser) {
-    return res.status(404).json({ error: `User with email ${email} not found` });
+    return res.status(404).json({ error: 'No registered user found with this email.' });
   }
 
   if (targetUser.id === currentUserId) {
@@ -839,6 +900,9 @@ router.post('/files/:id/share', (req, res) => {
 
   addAuditLog(id, currentUserId, 'share', `Granted access permission '${permission}' to user email '${email}'.`);
 
+  // Broadcast WebSocket notification to target user in real-time
+  sendWebSocketMessageToUser(targetUser.id, { type: 'file_shared', fileId: id });
+
   res.json({ success: true, message: `Access granted to user ${targetUser.username}` });
 });
 
@@ -853,18 +917,21 @@ router.delete('/files/:id/share/:userId', (req, res) => {
   if (!file) return res.status(404).json({ error: 'File not found' });
 
   if (file.owner_user_id !== currentUserId) {
-    return res.status(403).json({ error: 'Forbidden: Only file owner can manage sharing' });
+    return res.status(403).json({ error: 'Forbidden: Only owner can revoke access' });
   }
-
-  const targetUser = db.users.find(u => u.id === userId);
-  const email = targetUser ? targetUser.email : 'Unknown';
 
   db.file_access = db.file_access.filter(a => !(a.file_id === id && a.user_id === userId));
   saveDb();
 
+  const targetUser = db.users.find(u => u.id === userId);
+  const email = targetUser ? targetUser.email : 'Unknown';
+
   addAuditLog(id, currentUserId, 'share', `Revoked sharing access for user email '${email}'.`);
 
-  res.json({ success: true, message: 'Sharing access revoked successfully' });
+  // Broadcast WebSocket notification to target user in real-time
+  sendWebSocketMessageToUser(userId, { type: 'access_removed', fileId: id });
+
+  res.json({ success: true, message: 'Access revoked successfully' });
 });
 
 // ============================================================
@@ -872,7 +939,7 @@ router.delete('/files/:id/share/:userId', (req, res) => {
 // ============================================================
 router.post('/files/:id/share-link', (req, res) => {
   const { id } = req.params;
-  const { expiresInHours } = req.body;
+  const { expiresInHours, permission } = req.body;
   const currentUserId = req.user.id;
 
   const file = db.files.find(f => f.id === id);
@@ -890,6 +957,7 @@ router.post('/files/:id/share-link', (req, res) => {
     id: 'tok_rec_' + crypto.randomBytes(8).toString('hex'),
     file_id: id,
     token,
+    permission: permission || 'download',
     expires_at: expiresAt,
     created_by: currentUserId
   });
@@ -928,6 +996,10 @@ router.get('/public/download/:token', async (req, res) => {
       return res.status(404).send('Download link is invalid or has been revoked');
     }
 
+    if (share.permission === 'view') {
+      return res.status(403).send('Access Denied: Download not allowed for this link');
+    }
+
     if (Date.now() > share.expires_at) {
       // Invalidate expired token
       db.share_tokens = db.share_tokens.filter(s => s.token !== token);
@@ -951,6 +1023,7 @@ router.get('/public/download/:token', async (req, res) => {
       }
       res.sendFile(filePath, {
         headers: {
+          'Content-Type': file.mimeType || 'application/octet-stream',
           'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
         }
       });

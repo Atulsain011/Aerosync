@@ -72,6 +72,11 @@ const state = {
   peerConnections: new Map(),
   iceCandidateQueues: new Map(),
   
+  // Pairing room & Join Token
+  roomId: null,
+  joinToken: null,
+  authStatus: 'unauthenticated', // unauthenticated, guestPending, guestConnected, loggedIn
+  
   // Active File Transfer Queue
   transfers: new Map(),
   
@@ -559,8 +564,14 @@ function setupAuthTabs() {
       const otpVal = document.getElementById('auth-otp').value.trim();
       const errorMsg = document.getElementById('auth-error-msg');
 
-      if (!usernameVal || !otpVal) {
-        errorMsg.innerText = 'Nickname and OTP code are required';
+      if (!usernameVal) {
+        errorMsg.innerText = 'Nickname is required';
+        errorMsg.style.display = 'block';
+        return;
+      }
+
+      if (!state.joinToken && !otpVal) {
+        errorMsg.innerText = 'Join Code is required';
         errorMsg.style.display = 'block';
         return;
       }
@@ -571,19 +582,66 @@ function setupAuthTabs() {
       }
 
       errorMsg.style.display = 'none';
+      state.authStatus = 'guestPending';
 
-      // Send join message via websocket with OTP code
+      // Send join message via websocket with OTP or Join Token
       if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-        state.otp = otpVal;
+        if (!state.joinToken) {
+          state.otp = otpVal;
+        }
         initWebSocket();
       } else {
-        sendJoinMessage(otpVal);
+        if (state.joinToken && state.roomId) {
+          sendJoinMessage(null, state.joinToken, state.roomId);
+        } else {
+          sendJoinMessage(otpVal);
+        }
       }
     });
   }
 }
 
 async function checkAuthSession() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlRoomId = urlParams.get('roomId');
+  const urlJoinToken = urlParams.get('joinToken');
+
+  if (urlRoomId && urlJoinToken) {
+    state.roomId = urlRoomId;
+    state.joinToken = urlJoinToken;
+    state.authStatus = 'guestPending';
+    
+    // Clean URL query parameters
+    window.history.replaceState({}, document.title, window.location.pathname);
+    
+    // Customize OTP tab for Join Token confirmation
+    document.getElementById('auth-overlay').style.display = 'flex';
+    const otpTabBtn = document.getElementById('auth-tab-otp');
+    if (otpTabBtn) otpTabBtn.click();
+    
+    // Hide other tabs to keep the user focused on the join invitation
+    const loginTab = document.getElementById('auth-tab-login');
+    const registerTab = document.getElementById('auth-tab-register');
+    if (loginTab) loginTab.style.display = 'none';
+    if (registerTab) registerTab.style.display = 'none';
+    
+    // Customize UI labels
+    const otpText = document.querySelector('#auth-content-otp p');
+    if (otpText) otpText.innerText = 'You scanned a secure join link! Enter a nickname to connect directly to the session.';
+    
+    const otpInput = document.getElementById('auth-otp');
+    if (otpInput) {
+      const group = otpInput.closest('.mb-3') || otpInput.parentElement;
+      if (group) group.style.display = 'none';
+    }
+    
+    const submitBtn = document.getElementById('btn-submit-auth');
+    if (submitBtn) submitBtn.innerText = 'Join Pairing Session';
+    
+    initWebSocket();
+    return;
+  }
+
   // If localhost, backend auto-authenticates without prompt, but let's sync state
   try {
     const res = await secureFetch('/api/auth/session');
@@ -591,6 +649,7 @@ async function checkAuthSession() {
       const data = await res.json();
       state.currentUser = data.user;
       state.username = data.user.username;
+      state.authStatus = 'loggedIn';
       
       const startMenuDevice = document.getElementById('start-menu-device-name');
       if (startMenuDevice) startMenuDevice.innerText = data.user.username;
@@ -606,6 +665,7 @@ async function checkAuthSession() {
   }
 
   // Not logged in: Show overlay
+  state.authStatus = 'unauthenticated';
   document.getElementById('auth-overlay').style.display = 'flex';
   initWebSocket(); // Start WebSocket connection so OTP authentication can occur!
 }
@@ -806,18 +866,19 @@ async function revokeFileAccess(fileId, userId) {
 async function generatePublicLink() {
   const fileId = state.activeShareFileId;
   const expiresInHours = document.getElementById('pub-expiry-select').value;
+  const permission = document.getElementById('pub-permission-select').value;
 
   try {
     const res = await secureFetch(`/api/files/${fileId}/share-link`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expiresInHours })
+      body: JSON.stringify({ expiresInHours, permission })
     });
 
     const data = await res.json();
     if (!res.ok) throw new Error('Failed to generate public share token');
 
-    const downloadUrl = `${location.protocol}//${location.host}/api/public/download/${data.token}`;
+    const downloadUrl = `${location.protocol}//${location.host}/share/${data.token}`;
     document.getElementById('pub-link-url').innerText = downloadUrl;
     document.getElementById('pub-link-section').style.display = 'block';
 
@@ -1027,17 +1088,42 @@ function renderFileList() {
 }
 
 async function deleteFileFromServer(fileId) {
-  if (!confirm('Are you sure you want to delete this file permanently?')) return;
-  try {
-    const res = await secureFetch(`/api/files/${fileId}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error('Delete file failed');
-    showToast('File deleted successfully', 'success');
-    fetchFiles();
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
+  const file = state.files.find(f => f.id === fileId);
+  if (!file) return;
+
+  const overlay = document.getElementById('delete-confirm-overlay');
+  const fileNameEl = document.getElementById('delete-confirm-file-name');
+  const fileSizeEl = document.getElementById('delete-confirm-file-size');
+  
+  if (fileNameEl) fileNameEl.innerText = file.name;
+  if (fileSizeEl) fileSizeEl.innerText = formatBytes(file.size);
+  if (overlay) overlay.style.display = 'flex';
+
+  const btnConfirm = document.getElementById('btn-confirm-delete');
+  const btnCancel = document.getElementById('btn-cancel-delete');
+
+  const newBtnConfirm = btnConfirm.cloneNode(true);
+  btnConfirm.replaceWith(newBtnConfirm);
+  const newBtnCancel = btnCancel.cloneNode(true);
+  btnCancel.replaceWith(newBtnCancel);
+
+  newBtnCancel.addEventListener('click', () => {
+    if (overlay) overlay.style.display = 'none';
+  });
+
+  newBtnConfirm.addEventListener('click', async () => {
+    if (overlay) overlay.style.display = 'none';
+    try {
+      const res = await secureFetch(`/api/files/${fileId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Delete file failed');
+      showToast('File deleted successfully', 'success');
+      fetchFiles();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 async function fetchServerSettings() {
@@ -1179,6 +1265,120 @@ function setupDragAndDrop() {
   });
 }
 
+async function calculateSHA256(fileOrBlob) {
+  try {
+    const buffer = await fileOrBlob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (err) {
+    console.error('SHA-256 calculation failed:', err);
+    return null;
+  }
+}
+
+// --------------------------------------------------------------------------
+// PERSISTENT RESUME / PAUSE STORAGE (INDEXEDDB)
+// --------------------------------------------------------------------------
+const DB_NAME = 'aerosync_transfers_db';
+const STORE_NAME = 'progress';
+
+function initIndexedDB() {
+  return new Promise((resolve) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = (e) => resolve(e.target.result);
+    request.onerror = () => {
+      showToast('IndexedDB storage failed. Using memory fallback.', 'warning');
+      resolve(null);
+    };
+  });
+}
+
+const idbPromise = initIndexedDB();
+
+async function saveProgress(transferId, progressData) {
+  const db = await idbPromise;
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.put(progressData, transferId);
+  } catch (err) {
+    console.warn('IDB write failed:', err);
+  }
+}
+
+async function getProgress(transferId) {
+  const db = await idbPromise;
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(transferId);
+      request.onsuccess = (e) => resolve(e.target.result);
+      request.onerror = () => resolve(null);
+    } catch (err) {
+      resolve(null);
+    }
+  });
+}
+
+async function deleteProgress(transferId) {
+  const db = await idbPromise;
+  if (!db) return;
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    store.delete(transferId);
+  } catch (err) {
+    console.warn('IDB delete failed:', err);
+  }
+}
+
+// --------------------------------------------------------------------------
+// WEBRTC CONNECTION STATS COLLECTOR
+// --------------------------------------------------------------------------
+async function updateConnectionType(pc, transfer) {
+  if (!pc || pc.connectionState !== 'connected') return;
+  try {
+    const stats = await pc.getStats();
+    let activePair = null;
+    stats.forEach(report => {
+      if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.nominated) {
+        activePair = report;
+      }
+    });
+    if (activePair) {
+      const localCandidate = stats.get(activePair.localCandidateId);
+      const remoteCandidate = stats.get(activePair.remoteCandidateId);
+      if (localCandidate && remoteCandidate) {
+        if (localCandidate.candidateType === 'relay' || remoteCandidate.candidateType === 'relay') {
+          transfer.connectionType = 'Relayed';
+        } else {
+          const isPrivateIP = (ip) => {
+            if (!ip) return false;
+            return ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.16.') || ip.startsWith('172.17.') || ip.startsWith('172.18.') || ip.startsWith('172.19.') || ip.startsWith('172.20.') || ip.startsWith('172.21.') || ip.startsWith('172.22.') || ip.startsWith('172.23.') || ip.startsWith('172.24.') || ip.startsWith('172.25.') || ip.startsWith('172.26.') || ip.startsWith('172.27.') || ip.startsWith('172.28.') || ip.startsWith('172.29.') || ip.startsWith('172.30.') || ip.startsWith('172.31.');
+          };
+          if (isPrivateIP(localCandidate.ip) && isPrivateIP(remoteCandidate.ip)) {
+            transfer.connectionType = 'LAN';
+          } else {
+            transfer.connectionType = 'Direct P2P';
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to get connection stats:', err);
+  }
+}
+
 function handleFileUploads(fileList) {
   if (fileList.length === 0) return;
   
@@ -1207,7 +1407,10 @@ function getOptimalChunkSize(fileSize) {
 // LOCAL LAN MODE UPLOAD
 // --------------------------------------------------------
 async function initiateLocalUpload(file) {
-  const uploadId = 'up-local-' + generateUUID();
+  // Generate deterministic upload ID based on file metadata to support pause/resume across sessions
+  const fileHashKey = btoa(file.name + '-' + file.size + '-' + file.lastModified).replace(/=/g, '').slice(-32);
+  const uploadId = 'up-local-' + fileHashKey;
+  
   const CHUNK_SIZE = getOptimalChunkSize(file.size);
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   
@@ -1218,8 +1421,8 @@ async function initiateLocalUpload(file) {
     type: 'Upload (LAN)',
     progress: 0,
     speed: 0,
-    eta: 'Connecting...',
-    status: 'uploading',
+    eta: 'Calculating checksum...',
+    status: 'hashing',
     paused: false,
     chunksSent: [],
     totalChunks,
@@ -1236,6 +1439,31 @@ async function initiateLocalUpload(file) {
   updateTransferCountBadge();
   renderTransferQueue();
   renderFileList();
+
+  const clientHash = await calculateSHA256(file);
+  transfer.hash = clientHash;
+  transfer.status = 'uploading';
+  transfer.eta = 'Connecting...';
+  renderTransferQueue();
+
+  // Restore saved chunksSent progress
+  try {
+    const saved = await getProgress(uploadId);
+    if (saved && saved.chunksSent) {
+      transfer.chunksSent = saved.chunksSent;
+    }
+    const statusRes = await secureFetch(`/api/transfer/upload/status/${uploadId}`);
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      if (statusData.completedChunks) {
+        transfer.chunksSent = Array.from(new Set([...transfer.chunksSent, ...statusData.completedChunks]));
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to restore upload progress:', err);
+  }
+  
+  transfer.progress = (transfer.chunksSent.length / totalChunks) * 100;
   
   try {
     const initRes = await secureFetch('/api/transfer/upload/init', {
@@ -1245,7 +1473,8 @@ async function initiateLocalUpload(file) {
         uploadId,
         name: file.name,
         size: file.size,
-        totalChunks
+        totalChunks,
+        clientHash
       })
     });
     
@@ -1272,7 +1501,10 @@ async function initiateLocalUpload(file) {
 // PRIVATE CLOUD MODE MULTIPART UPLOAD
 // --------------------------------------------------------
 async function initiateCloudUpload(file) {
-  const uploadId = 'up-cloud-' + generateUUID();
+  // Generate deterministic upload ID based on file metadata to support pause/resume across sessions
+  const fileHashKey = btoa(file.name + '-' + file.size + '-' + file.lastModified).replace(/=/g, '').slice(-32);
+  const uploadId = 'up-cloud-' + fileHashKey;
+  
   const CHUNK_SIZE = getOptimalChunkSize(file.size);
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
   
@@ -1283,8 +1515,8 @@ async function initiateCloudUpload(file) {
     type: 'Upload (Cloud)',
     progress: 0,
     speed: 0,
-    eta: 'Creating session...',
-    status: 'uploading',
+    eta: 'Calculating checksum...',
+    status: 'hashing',
     paused: false,
     chunksSent: [],
     totalChunks,
@@ -1303,6 +1535,31 @@ async function initiateCloudUpload(file) {
   updateTransferCountBadge();
   renderTransferQueue();
   renderFileList();
+
+  const clientHash = await calculateSHA256(file);
+  transfer.hash = clientHash;
+  transfer.status = 'uploading';
+  transfer.eta = 'Creating session...';
+  renderTransferQueue();
+
+  // Restore saved chunksSent progress
+  try {
+    const saved = await getProgress(uploadId);
+    if (saved && saved.chunksSent) {
+      transfer.chunksSent = saved.chunksSent;
+    }
+    const statusRes = await secureFetch(`/api/transfer/upload/status/${uploadId}`);
+    if (statusRes.ok) {
+      const statusData = await statusRes.json();
+      if (statusData.completedChunks) {
+        transfer.chunksSent = Array.from(new Set([...transfer.chunksSent, ...statusData.completedChunks]));
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to restore upload progress:', err);
+  }
+  
+  transfer.progress = (transfer.chunksSent.length / totalChunks) * 100;
   
   try {
     const initRes = await secureFetch('/api/transfer/upload/init-cloud', {
@@ -1312,14 +1569,15 @@ async function initiateCloudUpload(file) {
         uploadId,
         name: file.name,
         size: file.size,
-        totalChunks
+        totalChunks,
+        clientHash
       })
     });
     
     if (!initRes.ok) {
       const errData = await initRes.json().catch(() => ({}));
-      if (errData.code === 'QUOTA_EXCEEDED' || (errData.error && errData.error.includes('limit is reached'))) {
-        alert('Your storage limit is reached. Upgrade your plan to continue.');
+      if (errData.code === 'QUOTA_EXCEEDED' || (errData.error && errData.error.toLowerCase().includes('limit is reached') || errData.error.toLowerCase().includes('quota exceeded'))) {
+        alert('Your cloud storage limit is reached. Upgrade your plan to continue.');
         toggleWindow('billing');
       }
       throw new Error(errData.error || 'Init cloud upload session failed');
@@ -1418,6 +1676,7 @@ function startMultipartUpload(transfer, chunkIndex, defaultRoute) {
       if (!transfer.chunksSent.includes(chunkIndex)) {
         transfer.chunksSent.push(chunkIndex);
       }
+      saveProgress(transfer.id, { chunksSent: transfer.chunksSent });
       uploadNextChunks(transfer, defaultRoute);
     } else if (transfer.status === 'uploading') {
       transfer.status = 'failed';
@@ -1487,6 +1746,7 @@ async function finalizeUploadAssembly(transfer) {
     }
     
     if (!res.ok) throw new Error('File assembly completion failed');
+    deleteProgress(transfer.id);
     
     transfer.status = 'completed';
     transfer.progress = 100;
@@ -1636,7 +1896,8 @@ async function handleIncomingSignal(senderId, signal) {
         transferId: signal.transferId,
         fileName: signal.name,
         fileSize: signal.size,
-        fileType: signal.mimeType
+        fileType: signal.mimeType,
+        fileHash: signal.fileHash
       };
       
       document.getElementById('prompt-peer-name').innerText = senderName;
@@ -1777,6 +2038,7 @@ async function acceptIncomingP2P() {
     peerId: invite.senderId,
     receivedBytes: 0,
     buffers: [],
+    fileHash: invite.fileHash,
     startTime: Date.now()
   };
   
@@ -1837,6 +2099,12 @@ async function startSenderPeerConnection(targetId, transferId) {
   
   dataChannel.onclose = () => {
     clearTimeout(connectionTimeout);
+    if (transfer.status === 'uploading' || transfer.status === 'connecting') {
+      transfer.status = 'paused';
+      transfer.eta = 'Paused';
+      showToast('Receiver disconnected. Transfer paused.', 'warning');
+      renderTransferQueue();
+    }
     closePeerConnection(targetId);
   };
   
@@ -1849,7 +2117,7 @@ function transmitP2PFile(transfer, targetId) {
   const channel = transfer.dataChannel;
   const file = transfer.file;
   
-  const CHUNK_SIZE = 64 * 1024;
+  let CHUNK_SIZE = 64 * 1024;
   const BLOCK_SIZE = 4 * 1024 * 1024;
   const MAX_BUFFERED_AMOUNT = 8 * 1024 * 1024;
   const LOW_BUFFERED_AMOUNT = 2 * 1024 * 1024;
@@ -1882,6 +2150,12 @@ function transmitP2PFile(transfer, targetId) {
     const loopStart = Date.now();
     try {
       while (true) {
+        const tx = state.transfers.get(transfer.id);
+        if (!tx || tx.status !== 'uploading' || tx.status === 'cancelled') {
+          isSending = false;
+          if (transfer.watchdogInterval) clearInterval(transfer.watchdogInterval);
+          return;
+        }
         if (channel.readyState !== 'open') {
           isSending = false;
           return;
@@ -1952,11 +2226,32 @@ function transmitP2PFile(transfer, targetId) {
   const watchdog = setInterval(() => {
     if (!state.transfers.has(transfer.id) || channel.readyState !== 'open' || transfer.status !== 'uploading') {
       clearInterval(watchdog);
+      if (transfer.statsInterval) clearInterval(transfer.statsInterval);
       return;
     }
     if (channel.bufferedAmount < LOW_BUFFERED_AMOUNT) fillAndSend();
   }, PUMP_INTERVAL_MS);
   transfer.watchdogInterval = watchdog;
+
+  const statsInterval = setInterval(async () => {
+    if (!state.transfers.has(transfer.id) || transfer.status !== 'uploading') {
+      clearInterval(statsInterval);
+      return;
+    }
+    const pc = state.peerConnections.get(targetId);
+    if (pc) {
+      await updateConnectionType(pc, transfer);
+      if (transfer.connectionType === 'LAN') {
+        CHUNK_SIZE = 128 * 1024;
+      } else if (transfer.connectionType === 'Relayed') {
+        CHUNK_SIZE = 16 * 1024;
+      } else {
+        CHUNK_SIZE = 64 * 1024;
+      }
+      updateTransferItemUI(transfer.id);
+    }
+  }, 1000);
+  transfer.statsInterval = statsInterval;
   
   fillAndSend();
 }
@@ -1985,13 +2280,36 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
   pc.ondatachannel = (event) => {
     const channel = event.channel;
     channel.binaryType = 'arraybuffer';
+    transfer.dataChannel = channel;
     let bytesLastCheck = 0;
     let timeLastCheck = Date.now();
     
     channel.onopen = () => clearTimeout(transfer.timeoutRef);
     
+    channel.onclose = () => {
+      clearTimeout(transfer.timeoutRef);
+      if (transfer.status === 'downloading' || transfer.status === 'connecting') {
+        transfer.status = 'paused';
+        transfer.eta = 'Paused';
+        showToast('Sender disconnected. Transfer paused.', 'warning');
+        renderTransferQueue();
+      }
+      if (transfer.statsInterval) clearInterval(transfer.statsInterval);
+      closePeerConnection(senderId);
+    };
+    
     transfer.status = 'downloading';
     transfer.startTime = Date.now();
+
+    const statsInterval = setInterval(async () => {
+      if (!state.transfers.has(transfer.id) || transfer.status !== 'downloading') {
+        clearInterval(statsInterval);
+        return;
+      }
+      await updateConnectionType(pc, transfer);
+      updateTransferItemUI(transfer.id);
+    }, 1000);
+    transfer.statsInterval = statsInterval;
     
     channel.onmessage = (e) => {
       clearTimeout(transfer.timeoutRef);
@@ -2000,22 +2318,48 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
           const payload = JSON.parse(e.data);
           if (payload.type === 'tx-done') {
             const blob = new Blob(transfer.buffers, { type: context.invite.fileType || 'application/octet-stream' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = transfer.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
             
-            transfer.status = 'completed';
-            transfer.progress = 100;
-            transfer.eta = 'Done';
-            showToast(`P2P Download finished!`, 'success');
+            transfer.status = 'assembling';
+            transfer.eta = 'Verifying integrity...';
             renderTransferQueue();
-            updateTransferCountBadge();
-            closePeerConnection(senderId);
+
+            calculateSHA256(blob).then((computedHash) => {
+              if (transfer.fileHash && computedHash !== transfer.fileHash) {
+                transfer.status = 'failed';
+                transfer.eta = 'Corrupted';
+                showToast('File corrupted. Please retry transfer.', 'error');
+                if (transfer.statsInterval) clearInterval(transfer.statsInterval);
+                renderTransferQueue();
+                closePeerConnection(senderId);
+                return;
+              }
+
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = transfer.name;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              
+              transfer.status = 'completed';
+              transfer.progress = 100;
+              transfer.eta = 'Verified: file matches original';
+              showToast(`P2P Download finished!`, 'success');
+              if (transfer.statsInterval) clearInterval(transfer.statsInterval);
+              renderTransferQueue();
+              updateTransferCountBadge();
+              closePeerConnection(senderId);
+            }).catch(() => {
+              transfer.status = 'failed';
+              transfer.eta = 'Verification failed';
+              if (transfer.statsInterval) clearInterval(transfer.statsInterval);
+              renderTransferQueue();
+              closePeerConnection(senderId);
+            });
+          } else if (payload.type === 'transfer_cancel') {
+            cancelTransfer(payload.transferId, true);
           }
         } catch(err) {}
         return;
@@ -2072,8 +2416,8 @@ function requestP2PFileShare(targetClientId) {
       type: 'Upload (P2P)',
       progress: 0,
       speed: 0,
-      eta: 'Waiting peer...',
-      status: 'pending-invite',
+      eta: 'Calculating checksum...',
+      status: 'hashing',
       peerId: targetClientId,
       file
     };
@@ -2082,13 +2426,20 @@ function requestP2PFileShare(targetClientId) {
     openWindow('transfers');
     updateTransferCountBadge();
     renderTransferQueue();
+
+    const fileHash = await calculateSHA256(file);
+    transfer.hash = fileHash;
+    transfer.status = 'pending-invite';
+    transfer.eta = 'Waiting peer...';
+    renderTransferQueue();
     
     sendSignal(targetClientId, {
       type: 'file-invite',
       transferId,
       name: file.name,
       size: file.size,
-      mimeType: file.type || 'application/octet-stream'
+      mimeType: file.type || 'application/octet-stream',
+      fileHash
     });
     showToast(`Invite sent to peer`, 'info');
   };
@@ -2289,12 +2640,23 @@ function removeTransfer(transferId) {
   renderFileList();
 }
 
-function cancelTransfer(transferId) {
+function cancelTransfer(transferId, remoteTriggered = false) {
   const transfer = state.transfers.get(transferId);
   if (!transfer) return;
   
-  if (!confirm(`Cancel upload of ${transfer.name}?`)) return;
+  if (!remoteTriggered && transfer.status !== 'cancelled' && transfer.status !== 'failed' && transfer.status !== 'completed') {
+    if (!confirm(`Cancel transfer of ${transfer.name}?`)) return;
+  }
 
+  // Set local state
+  transfer.status = 'cancelled';
+  transfer.eta = 'Cancelled';
+  transfer.speed = 0;
+  
+  if (transfer.watchdogInterval) {
+    clearInterval(transfer.watchdogInterval);
+  }
+  
   if (transfer.activeXHRInstances) {
     transfer.activeXHRInstances.forEach((xhr) => {
       try { xhr.abort(); } catch (e) {}
@@ -2302,16 +2664,38 @@ function cancelTransfer(transferId) {
     transfer.activeXHRInstances.clear();
   }
 
-  state.transfers.delete(transferId);
+  // If local/cloud transfer, call delete API to clean up server chunks
+  if (transfer.type.includes('LAN') || transfer.type.includes('Cloud')) {
+    secureFetch(`/api/transfer/upload/${transfer.id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  // Send cancel message over DataChannel if open
+  if (transfer.dataChannel && transfer.dataChannel.readyState === 'open') {
+    try {
+      transfer.dataChannel.send(JSON.stringify({ type: 'transfer_cancel', transferId }));
+      transfer.dataChannel.close();
+    } catch (e) {}
+  }
+
+  // Send WebSockets signal fallback if P2P
+  if (transfer.type.includes('P2P') && transfer.peerId) {
+    sendSignal(transfer.peerId, {
+      type: 'p2p-cancel',
+      transferId: transferId
+    });
+    closePeerConnection(transfer.peerId);
+  }
+
+  showToast(`Transfer cancelled${remoteTriggered ? ' by peer' : ''}`, 'info');
+  
   renderTransferQueue();
   updateTransferCountBadge();
   renderFileList();
-  showToast('Transfer cancelled', 'info');
 }
 
 function clearInactiveTransfers() {
   state.transfers.forEach((tx, id) => {
-    if (tx.status === 'completed' || tx.status === 'failed') {
+    if (tx.status === 'completed' || tx.status === 'failed' || tx.status === 'cancelled') {
       state.transfers.delete(id);
     }
   });
@@ -2348,7 +2732,7 @@ function updatePeerCountBadge() {
 // --------------------------------------------------------------------------
 // 13. WebSockets Connection signaling
 // --------------------------------------------------------------------------
-function sendJoinMessage(otpCode = null) {
+function sendJoinMessage(otpCode = null, joinToken = null, roomId = null) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     const payload = {
       type: 'join',
@@ -2357,12 +2741,24 @@ function sendJoinMessage(otpCode = null) {
       avatar: state.avatar,
       deviceInfo: { platform: navigator.platform, userAgent: navigator.userAgent }
     };
-    if (otpCode) {
-      payload.otp = otpCode;
-      state.otp = otpCode;
-    } else if (state.otp) {
-      payload.otp = state.otp;
+
+    if (state.sessionToken) {
+      payload.sessionToken = state.sessionToken;
     }
+
+    const finalJoinToken = joinToken || state.joinToken;
+    const finalRoomId = roomId || state.roomId;
+
+    if (finalJoinToken && finalRoomId) {
+      payload.joinToken = finalJoinToken;
+      payload.roomId = finalRoomId;
+    } else {
+      const finalOtp = otpCode || state.otp;
+      if (finalOtp) {
+        payload.otp = finalOtp;
+      }
+    }
+
     state.ws.send(JSON.stringify(payload));
   }
 }
@@ -2376,7 +2772,13 @@ function initWebSocket() {
   state.ws.onopen = () => {
     document.getElementById('network-status-text').innerText = 'Connected';
     document.getElementById('network-status-icon').className = 'bi bi-wifi text-success';
-    sendJoinMessage();
+    if (state.joinToken && state.roomId) {
+      sendJoinMessage(null, state.joinToken, state.roomId);
+    } else if (state.otp) {
+      sendJoinMessage(state.otp);
+    } else {
+      sendJoinMessage();
+    }
   };
   
   state.ws.onclose = () => {
@@ -2390,6 +2792,7 @@ function initWebSocket() {
       const msg = JSON.parse(event.data);
       switch (msg.type) {
         case 'auth-required':
+          state.authStatus = 'unauthenticated';
           // Re-route to security OTP screen overlay tab dynamically
           document.getElementById('auth-overlay').style.display = 'flex';
           const otpTabBtn = document.getElementById('auth-tab-otp');
@@ -2397,6 +2800,7 @@ function initWebSocket() {
           break;
           
         case 'auth-failed':
+          state.authStatus = 'unauthenticated';
           document.getElementById('auth-overlay').style.display = 'flex';
           const errEl = document.getElementById('auth-error-msg');
           errEl.innerText = msg.message || 'Incorrect OTP code. Please try again.';
@@ -2404,7 +2808,16 @@ function initWebSocket() {
           break;
           
         case 'auth-success':
+          state.authStatus = msg.authStatus || (state.sessionToken ? 'loggedIn' : 'guestConnected');
           document.getElementById('auth-overlay').style.display = 'none';
+          
+          if (state.authStatus === 'guestConnected') {
+            openWindow('transfers');
+            const driveIp = document.getElementById('drive-node-ip');
+            if (driveIp) driveIp.innerText = 'Paired Session';
+          }
+          
+          showToast('Pairing connection successful!', 'success');
           fetchFiles();
           fetchServerSettings();
           fetchUserBillingPlan();
@@ -2412,12 +2825,12 @@ function initWebSocket() {
           
         case 'otp-updated':
           if (state.isHost) {
-            document.getElementById('radar-otp-code').innerText = msg.otp || '------';
             state.activeOTP = msg.otp;
+            const joinCodeEl = document.getElementById('share-join-code');
+            if (joinCodeEl) joinCodeEl.innerText = msg.otp;
             showToast('Security OTP refreshed successfully', 'success');
-            if (state.activeWindows['share']) {
-              populateShareHubAddresses();
-            }
+            // Auto-refresh the QR code when OTP changes
+            fetchConnectionQR();
           }
           break;
           
@@ -2427,9 +2840,8 @@ function initWebSocket() {
             document.getElementById('radar-otp-banner').style.display = 'flex';
             document.getElementById('radar-otp-code').innerText = msg.activeOTP || '------';
             state.activeOTP = msg.activeOTP;
-            if (state.activeWindows['share']) {
-              populateShareHubAddresses();
-            }
+            const joinCodeEl = document.getElementById('share-join-code');
+            if (joinCodeEl) joinCodeEl.innerText = msg.activeOTP;
           } else {
             document.getElementById('radar-otp-banner').style.display = 'none';
           }
@@ -2439,6 +2851,7 @@ function initWebSocket() {
           renderRadarScreen();
           renderTextPeerList();
           updatePeerCountBadge();
+          renderConnectedDevicesList();
           break;
           
         case 'user-joined':
@@ -2447,6 +2860,7 @@ function initWebSocket() {
           renderRadarScreen();
           renderTextPeerList();
           updatePeerCountBadge();
+          renderConnectedDevicesList();
           break;
           
         case 'user-left':
@@ -2459,10 +2873,32 @@ function initWebSocket() {
           renderRadarScreen();
           renderTextPeerList();
           updatePeerCountBadge();
+          renderConnectedDevicesList();
           break;
           
         case 'signal':
           handleIncomingSignal(msg.senderId, msg.data);
+          break;
+
+        case 'file_shared':
+          showToast('A new file has been shared with you!', 'success');
+          fetchFiles();
+          break;
+          
+        case 'access_removed':
+          showToast('Access to a shared file has been revoked.', 'warning');
+          fetchFiles();
+          break;
+          
+        case 'file_deleted':
+          // Abort active transfers for this file if downloading/uploading
+          state.transfers.forEach((tx, id) => {
+            if (tx.fileId === msg.fileId || id === msg.fileId) {
+              cancelTransfer(id, true);
+              showToast(`Transfer of ${tx.name} aborted: File deleted by owner.`, 'warning');
+            }
+          });
+          fetchFiles();
           break;
       }
     } catch (e) {
@@ -2583,56 +3019,146 @@ function initStartMenuAndShareHub() {
   }
 }
 
-async function openShareHub(overrideUrl = null, overrideLabel = null) {
+let shareCountdownInterval = null;
+
+async function openShareHub() {
   openWindow('share');
   if (!state.serverSettings) {
     await fetchServerSettings();
   }
-  populateShareHubAddresses(overrideUrl, overrideLabel);
+  
+  await fetchConnectionQR();
+  renderConnectedDevicesList();
 }
 
-function populateShareHubAddresses(overrideUrl = null, overrideLabel = null) {
-  const container = document.getElementById('share-addresses-list');
-  if (!container) return;
-  
-  const settings = state.serverSettings || { port: location.port || 5000 };
-  const addresses = [];
-  
-  const otpParam = state.activeOTP ? `?otp=${state.activeOTP}` : '';
-  
-  if (settings.publicTunnelUrl) {
-    addresses.push({ label: 'Public Tunnel (Remote)', url: settings.publicTunnelUrl + otpParam });
-  }
-  if (settings.networkAddresses && settings.networkAddresses.length > 0) {
-    settings.networkAddresses.forEach(ip => {
-      addresses.push({ label: `LAN: ${ip.interface} (${ip.type})`, url: `http://${ip.address}:${settings.port}${otpParam}` });
-    });
-  }
-  
-  if (addresses.length === 0) {
-    // Fallback to the current host origin to ensure a QR code is always generated
-    addresses.push({ label: 'Current Origin', url: location.origin + otpParam });
-  }
-  
-  container.innerHTML = addresses.map((addr) => `
-    <div class="share-address-row">
-      <div class="share-address-info">
-        <span class="share-address-name">${escapeHtml(addr.label)}</span>
-        <span class="share-address-url">${escapeHtml(addr.url)}</span>
-      </div>
-      <div class="share-actions-group">
-        <button class="btn btn-secondary btn-sm p-1" onclick="updateShareQrCode('${escapeHtml(addr.url)}', '${escapeHtml(addr.label)}')"><i class="bi bi-qr-code"></i></button>
-        <button class="btn btn-secondary btn-sm p-1" onclick="copyToClipboard('${escapeHtml(addr.url)}')"><i class="bi bi-clipboard"></i></button>
-      </div>
-    </div>
-  `).join('');
-  
-  if (overrideUrl) {
-    updateShareQrCode(overrideUrl, overrideLabel);
-  } else {
-    updateShareQrCode(addresses[0].url, addresses[0].label);
+async function fetchConnectionQR() {
+  try {
+    const res = await secureFetch(`/api/qr/connection?clientId=${state.clientId}`);
+    if (!res.ok) throw new Error('Failed to fetch connection info');
+    const data = await res.json();
+    
+    // Update OTP
+    state.activeOTP = data.otp;
+    
+    // Render QR Code onto canvas
+    const canvas = document.getElementById('share-qr-canvas');
+    if (canvas) {
+      new QRious({
+        element: canvas,
+        value: data.joinURL,
+        size: 130
+      });
+    }
+    
+    const label = document.getElementById('share-qr-label');
+    if (label) label.innerText = 'Secure Pairing QR Code';
+    
+    const joinCodeEl = document.getElementById('share-join-code');
+    if (joinCodeEl) joinCodeEl.innerText = data.otp;
+    
+    const qrLink = document.getElementById('share-qr-link');
+    if (qrLink) qrLink.href = data.joinURL;
+    
+    // Setup countdown
+    let timeLeft = data.expiresIn || 300;
+    const countdownEl = document.getElementById('share-qr-countdown');
+    
+    if (shareCountdownInterval) clearInterval(shareCountdownInterval);
+    
+    const updateTimerDisplay = () => {
+      const minutes = Math.floor(timeLeft / 60);
+      const seconds = timeLeft % 60;
+      const secondsStr = seconds.toString().padStart(2, '0');
+      if (countdownEl) {
+        countdownEl.innerText = `Token expires in: 0${minutes}:${secondsStr}`;
+      }
+    };
+    
+    updateTimerDisplay();
+    
+    shareCountdownInterval = setInterval(() => {
+      timeLeft--;
+      if (timeLeft <= 0) {
+        clearInterval(shareCountdownInterval);
+        fetchConnectionQR(); // Auto-refresh when expired
+      } else {
+        updateTimerDisplay();
+      }
+    }, 1000);
+    
+    // Setup copy join link button
+    const btnCopyLink = document.getElementById('btn-copy-join-link');
+    if (btnCopyLink) {
+      const newBtn = btnCopyLink.cloneNode(true);
+      btnCopyLink.replaceWith(newBtn);
+      newBtn.addEventListener('click', () => {
+        copyToClipboard(data.joinURL);
+      });
+    }
+    
+    // Setup copy join code button
+    const btnCopyCode = document.getElementById('btn-copy-join-code');
+    if (btnCopyCode) {
+      const newBtn = btnCopyCode.cloneNode(true);
+      btnCopyCode.replaceWith(newBtn);
+      newBtn.addEventListener('click', () => {
+        copyToClipboard(data.otp);
+      });
+    }
+    
+    // Setup share link button using Web Share API
+    const btnWebShare = document.getElementById('btn-web-share-link');
+    if (btnWebShare) {
+      if (navigator.share) {
+        btnWebShare.style.display = 'inline-flex';
+        const newBtn = btnWebShare.cloneNode(true);
+        btnWebShare.replaceWith(newBtn);
+        newBtn.addEventListener('click', () => {
+          navigator.share({
+            title: 'AeroSync Pairing Link',
+            text: `Pair your device with code: ${data.otp}`,
+            url: data.joinURL
+          }).catch(err => console.log('Share failed:', err));
+        });
+      } else {
+        btnWebShare.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load connection QR:', err);
+    showToast('Failed to load pairing QR', 'error');
   }
 }
+
+function renderConnectedDevicesList() {
+  const container = document.getElementById('share-connected-devices-list');
+  if (!container) return;
+  if (state.peers.size === 0) {
+    container.innerHTML = `<div class="text-muted small text-center py-1">No paired devices. Scan QR or enter code to pair.</div>`;
+    return;
+  }
+  let html = '';
+  state.peers.forEach(peer => {
+    const iconClass = getAvatarIconClass(peer.avatar);
+    html += `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <i class="bi ${iconClass} text-success" style="font-size: 14px;"></i>
+          <div style="display: flex; flex-direction: column;">
+            <span style="font-size: 11px; font-weight: 500; color: #fff;">${escapeHtml(peer.username)}</span>
+            <span style="font-size: 9px; color: rgba(255,255,255,0.5);">${escapeHtml(peer.deviceInfo.platform || 'Client')}</span>
+          </div>
+        </div>
+        <span class="badge bg-success-subtle text-success" style="font-size: 8px; border-radius: 4px; padding: 2px 4px; font-weight: 600;">Active</span>
+      </div>
+    `;
+  });
+  container.innerHTML = html;
+}
+
+window.openShareHubWithUrl = function(url, label) {
+  openShareHub();
+};
 
 window.updateShareQrCode = function(url, label) {
   const qrContainer = document.getElementById('share-qr-container');

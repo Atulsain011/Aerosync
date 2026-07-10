@@ -4,7 +4,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
-const { CLOUD_SECRET } = require('./db');
+const { CLOUD_SECRET, db } = require('./db');
 
 const CLOUD_DIR = path.join(process.cwd(), 'cloud_storage');
 
@@ -71,6 +71,9 @@ router.put('/upload-part/:sessionId/:partIndex', verifySignature, express.raw({ 
   }
 
   try {
+    if (db.cancelledSessions && db.cancelledSessions.has(sessionId)) {
+      return res.status(400).json({ error: 'Upload session has been cancelled' });
+    }
     const tempDir = path.join(CLOUD_DIR, '.tmp', sessionId);
     await fsPromises.mkdir(tempDir, { recursive: true });
     
@@ -135,7 +138,17 @@ router.get('/download/:fileId', verifySignature, async (req, res) => {
     return res.status(404).json({ error: 'Cloud file target not found' });
   }
 
-  res.sendFile(filePath);
+  const file = db.files.find(f => f.id === fileId);
+  if (file) {
+    res.sendFile(filePath, {
+      headers: {
+        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`
+      }
+    });
+  } else {
+    res.sendFile(filePath);
+  }
 });
 
 module.exports = {

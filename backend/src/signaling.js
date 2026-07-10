@@ -6,15 +6,48 @@ const { db, saveDb } = require('./db');
 // Active peer connections registry: clientId -> client state metadata
 const clients = new Map();
 
+const crypto = require('crypto');
+
+// Pairing rooms registry: roomId -> { hostClientId, otp, joinToken, tokenExpiresAt, isTokenUsed }
+const rooms = new Map();
+
+function getOrCreateRoom(hostClientId) {
+  if (!hostClientId) hostClientId = 'default_host';
+  const roomId = 'room_' + hostClientId;
+  let room = rooms.get(roomId);
+  const now = Date.now();
+  if (!room) {
+    room = {
+      hostClientId,
+      otp: activeOTP,
+      joinToken: 'tok_' + crypto.randomBytes(16).toString('hex'),
+      tokenExpiresAt: now + 5 * 60 * 1000, // 5 minutes
+      isTokenUsed: false
+    };
+    rooms.set(roomId, room);
+  } else {
+    room.otp = activeOTP;
+    if (!room.joinToken || now > room.tokenExpiresAt || room.isTokenUsed) {
+      room.joinToken = 'tok_' + crypto.randomBytes(16).toString('hex');
+      room.tokenExpiresAt = now + 5 * 60 * 1000;
+      room.isTokenUsed = false;
+    }
+  }
+  return room;
+}
+
 function generateNewOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 // Active 6-digit OTP code generated on boot
 let activeOTP = generateNewOTP();
-console.log(`==================================================`);
-console.log(`🔑 SECURITY PROTOCOL: Host Authorization OTP is: ${activeOTP}`);
-console.log(`==================================================`);
+
+if (process.env.NODE_ENV !== 'production') {
+  console.log(`==================================================`);
+  console.log(`🔑 SECURITY PROTOCOL: Host Authorization OTP is: ${activeOTP}`);
+  console.log(`==================================================`);
+}
 
 /**
  * Regenerates the dynamic OTP and broadcasts it to all connected host devices.
@@ -22,9 +55,12 @@ console.log(`==================================================`);
  */
 function refreshOTP() {
   activeOTP = generateNewOTP();
-  console.log(`==================================================`);
-  console.log(`🔑 SECURITY PROTOCOL: Host Authorization OTP Refreshed: ${activeOTP}`);
-  console.log(`==================================================`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`==================================================`);
+    console.log(`🔑 SECURITY PROTOCOL: Host Authorization OTP Refreshed: ${activeOTP}`);
+    console.log(`==================================================`);
+  }
+
 
   // Notify any connected hosts of the new OTP code
   clients.forEach((c) => {
@@ -92,29 +128,95 @@ function initSignaling(server) {
 
         switch (msg.type) {
           case 'join': {
-            const { clientId, username, avatar, deviceInfo, otp } = msg;
+            const { clientId, username, avatar, deviceInfo, otp, joinToken, roomId, sessionToken } = msg;
             if (!clientId) {
               socket.send(JSON.stringify({ type: 'error', message: 'Missing clientId parameter' }));
               return;
             }
 
-            // Check security OTP authentication
+            // Check security OTP / Token / Session authentication
             if (!socket.authorized) {
-              if (otp === activeOTP) {
+              let authorized = false;
+              let authStatus = 'unauthenticated';
+              let userId = null;
+
+              // 1. Session token validation (logged in user)
+              const { activeSessions } = require('./auth');
+              if (sessionToken && activeSessions.has(sessionToken)) {
+                const s = activeSessions.get(sessionToken);
                 socket.authorized = true;
-                socket.send(JSON.stringify({ type: 'auth-success' }));
+                socket.userId = s.userId;
+                authorized = true;
+                authStatus = 'loggedIn';
+              }
+              // 2. Secure QR join token validation
+              else if (joinToken && roomId) {
+                const room = rooms.get(roomId);
+                if (room && room.joinToken === joinToken && Date.now() <= room.tokenExpiresAt && !room.isTokenUsed) {
+                  room.isTokenUsed = true; // single-session scoped token
+                  socket.authorized = true;
+                  socket.userId = 'guest_' + clientId;
+                  authorized = true;
+                  authStatus = 'guestConnected';
+                } else {
+                  socket.send(JSON.stringify({
+                    type: 'auth-failed',
+                    message: 'Join link has expired or is invalid.'
+                  }));
+                  return;
+                }
+              }
+              // 3. Short Join Code (OTP) validation
+              else if (otp) {
+                if (otp === activeOTP) {
+                  socket.authorized = true;
+                  socket.userId = socket.isHost ? 'host' : 'guest_' + clientId;
+                  authorized = true;
+                  authStatus = socket.isHost ? 'loggedIn' : 'guestConnected';
+                } else {
+                  // Search all rooms for a matching OTP
+                  let matchedRoom = null;
+                  for (const [rId, r] of rooms.entries()) {
+                    if (r.otp === otp) {
+                      matchedRoom = r;
+                      break;
+                    }
+                  }
+                  if (matchedRoom) {
+                    socket.authorized = true;
+                    socket.userId = 'guest_' + clientId;
+                    authorized = true;
+                    authStatus = 'guestConnected';
+                  } else {
+                    socket.send(JSON.stringify({
+                      type: 'auth-failed',
+                      message: 'Incorrect Join Code. Please try again.'
+                    }));
+                    return;
+                  }
+                }
+              }
+
+              if (authorized) {
+                socket.authStatus = authStatus;
+                socket.send(JSON.stringify({
+                  type: 'auth-success',
+                  authStatus: socket.authStatus,
+                  userId: socket.userId
+                }));
               } else {
                 socket.send(JSON.stringify({
-                  type: otp ? 'auth-failed' : 'auth-required',
-                  message: otp ? 'Incorrect OTP code. Please try again.' : 'Authorization required.'
+                  type: 'auth-required',
+                  message: 'Authorization required.'
                 }));
                 return;
               }
             }
 
-            // Ensure guest user exists in database for isolated file spaces mapping
+            // Ensure user exists in database for isolated file spaces mapping
             if (socket.authorized) {
-              const uId = socket.isHost ? 'host' : 'guest_' + clientId;
+              const uId = socket.userId || (socket.isHost ? 'host' : 'guest_' + clientId);
+              socket.userId = uId;
               let guestUser = db.users.find(u => u.id === uId);
               if (!guestUser) {
                 guestUser = {
@@ -339,7 +441,7 @@ function getActiveOTP() {
   return activeOTP;
 }
 
-module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP, getActiveOTP };
+module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP, getActiveOTP, getOrCreateRoom, rooms };
 // Add TURN configuration
 const RTC_CONFIG = {
   iceServers: [

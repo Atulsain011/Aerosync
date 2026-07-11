@@ -5,6 +5,7 @@ const { db, saveDb } = require('./db');
 
 // Active peer connections registry: clientId -> client state metadata
 const clients = new Map();
+const activeGuestSessions = new Map();
 
 const crypto = require('crypto');
 
@@ -149,6 +150,14 @@ function initSignaling(server) {
                 authorized = true;
                 authStatus = 'loggedIn';
               }
+              // 1.5. Guest session token validation
+              else if (sessionToken && activeGuestSessions.has(sessionToken)) {
+                const s = activeGuestSessions.get(sessionToken);
+                socket.authorized = true;
+                socket.userId = s.userId;
+                authorized = true;
+                authStatus = 'guestConnected';
+              }
               // 2. Secure QR join token validation
               else if (joinToken && roomId) {
                 const room = rooms.get(roomId);
@@ -199,10 +208,23 @@ function initSignaling(server) {
 
               if (authorized) {
                 socket.authStatus = authStatus;
+                
+                let guestSessionToken = null;
+                if (authStatus === 'guestConnected') {
+                  const existingToken = Array.from(activeGuestSessions.entries()).find(([tok, s]) => s.clientId === clientId)?.[0];
+                  if (existingToken) {
+                    guestSessionToken = existingToken;
+                  } else {
+                    guestSessionToken = 'gst_' + crypto.randomBytes(16).toString('hex');
+                    activeGuestSessions.set(guestSessionToken, { userId: socket.userId, clientId });
+                  }
+                }
+
                 socket.send(JSON.stringify({
                   type: 'auth-success',
                   authStatus: socket.authStatus,
-                  userId: socket.userId
+                  userId: socket.userId,
+                  guestSessionToken
                 }));
               } else {
                 socket.send(JSON.stringify({
@@ -280,6 +302,15 @@ function initSignaling(server) {
             // Notify everyone else that a new peer has connected
             broadcast({
               type: 'user-joined',
+              client: {
+                id: clientData.id,
+                username: clientData.username,
+                avatar: clientData.avatar,
+                deviceInfo: clientData.deviceInfo
+              }
+            }, clientId);
+            broadcast({
+              type: 'device_connected',
               client: {
                 id: clientData.id,
                 username: clientData.username,
@@ -431,6 +462,10 @@ function initSignaling(server) {
         type: 'user-left',
         clientId
       });
+      broadcast({
+        type: 'device_disconnected',
+        clientId
+      });
     }
   }
 
@@ -441,7 +476,7 @@ function getActiveOTP() {
   return activeOTP;
 }
 
-module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP, getActiveOTP, getOrCreateRoom, rooms };
+module.exports = { initSignaling, clients, activeOTP, isLocalAddress, refreshOTP, getActiveOTP, getOrCreateRoom, rooms, activeGuestSessions };
 // Add TURN configuration
 const RTC_CONFIG = {
   iceServers: [

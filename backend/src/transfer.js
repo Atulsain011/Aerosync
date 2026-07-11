@@ -76,10 +76,30 @@ const localUploads = new Map();
 function checkAuthorized(req, res, next) {
   // 1. Check X-Session-Token first to ensure tokened requests are isolated correctly even on localhost
   const sessionToken = req.headers['x-session-token'] || req.query.sessionToken || req.body.sessionToken;
-  if (sessionToken && activeSessions.has(sessionToken)) {
-    const s = activeSessions.get(sessionToken);
-    req.user = { id: s.userId, email: s.email, username: s.username };
-    return next();
+  if (sessionToken) {
+    if (activeSessions.has(sessionToken)) {
+      const s = activeSessions.get(sessionToken);
+      req.user = { id: s.userId, email: s.email, username: s.username };
+      return next();
+    }
+
+    const { activeGuestSessions } = require('./signaling');
+    if (activeGuestSessions && activeGuestSessions.has(sessionToken)) {
+      const s = activeGuestSessions.get(sessionToken);
+      let guestUser = db.users.find(u => u.id === s.userId);
+      if (!guestUser) {
+        guestUser = {
+          id: s.userId,
+          email: `${s.clientId}@aerosync.local`,
+          username: 'Guest Peer',
+          passwordHash: ''
+        };
+        db.users.push(guestUser);
+        saveDb();
+      }
+      req.user = guestUser;
+      return next();
+    }
   }
 
   // 2. Check if request is from localhost (auto-login host fallback)
@@ -1111,6 +1131,45 @@ router.get('/upload/status/:uploadId', (req, res) => {
     }
   }
   res.status(404).json({ error: 'Session not found' });
+});
+
+router.post('/files/p2p-metadata', (req, res) => {
+  const { fileId, name, size, mimeType, senderId, receiverId, fileHash } = req.body;
+  
+  if (!fileId || !name || !size) {
+    return res.status(400).json({ error: 'fileId, name, and size are required' });
+  }
+
+  let fileRecord = db.files.find(f => f.id === fileId);
+  if (!fileRecord) {
+    fileRecord = {
+      id: fileId,
+      name,
+      size: parseInt(size, 10),
+      mimeType: mimeType || 'application/octet-stream',
+      hash: fileHash || '',
+      owner_user_id: senderId || 'host',
+      storage_type: 'p2p',
+      created_at: Date.now()
+    };
+    db.files.push(fileRecord);
+    
+    if (receiverId) {
+      db.file_access.push({
+        id: 'acc_' + crypto.randomBytes(8).toString('hex'),
+        file_id: fileId,
+        user_id: receiverId,
+        permission: 'download'
+      });
+    }
+    saveDb();
+  }
+
+  // Broadcast WebSocket notifications to room in real-time
+  broadcastWebSocketMessage({ type: 'file_received', fileId, senderId, receiverId });
+  broadcastWebSocketMessage({ type: 'file_uploaded', fileId, senderId });
+
+  res.json({ success: true, file: fileRecord });
 });
 
 module.exports = router;

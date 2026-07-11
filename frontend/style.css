@@ -2364,3 +2364,10 @@ body.theme-classic .share-address-url {
   display: inline-block;
 }
 
+/* Visible Keyboard Focus Styles */
+*:focus-visible {
+  outline: 2px solid var(--accent, #88c0d0) !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(136, 192, 208, 0.4) !important;
+}
+

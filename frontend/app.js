@@ -540,6 +540,9 @@ function setupAuthTabs() {
     
     activeTab.classList.add('active');
     showContent.style.display = 'block';
+
+    const firstInput = showContent.querySelector('input');
+    if (firstInput) firstInput.focus();
   };
 
   tabLogin.addEventListener('click', () => switchTab(tabLogin, contentLogin));
@@ -560,6 +563,8 @@ function setupAuthTabs() {
   const btnSubmitAuth = document.getElementById('btn-submit-auth');
   if (btnSubmitAuth) {
     btnSubmitAuth.addEventListener('click', () => {
+      if (btnSubmitAuth.disabled) return;
+
       const usernameVal = document.getElementById('auth-username').value.trim();
       const otpVal = document.getElementById('auth-otp').value.trim();
       const errorMsg = document.getElementById('auth-error-msg');
@@ -575,6 +580,15 @@ function setupAuthTabs() {
         errorMsg.style.display = 'block';
         return;
       }
+
+      btnSubmitAuth.disabled = true;
+      const originalText = btnSubmitAuth.innerText;
+      btnSubmitAuth.innerText = 'Connecting...';
+
+      setTimeout(() => {
+        btnSubmitAuth.disabled = false;
+        btnSubmitAuth.innerText = originalText;
+      }, 3000);
 
       if (usernameVal) {
         state.username = usernameVal;
@@ -674,12 +688,19 @@ async function handleLogin() {
   const loginInput = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
   const errorMsg = document.getElementById('auth-error-msg');
+  const btn = document.getElementById('btn-submit-login');
+
+  if (btn.disabled) return;
 
   if (!loginInput || !password) {
     errorMsg.innerText = 'Please enter credentials';
     errorMsg.style.display = 'block';
     return;
   }
+
+  btn.disabled = true;
+  const originalText = btn.innerText;
+  btn.innerText = 'Signing In...';
 
   try {
     const res = await fetch('/api/auth/login', {
@@ -699,13 +720,15 @@ async function handleLogin() {
     document.getElementById('auth-overlay').style.display = 'none';
     showToast('Logged in successfully', 'success');
 
-    // Reload UI
     initWebSocket();
     fetchFiles();
     fetchServerSettings();
   } catch (err) {
     errorMsg.innerText = err.message;
     errorMsg.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerText = originalText;
   }
 }
 
@@ -714,12 +737,19 @@ async function handleRegister() {
   const username = document.getElementById('reg-username').value;
   const password = document.getElementById('reg-password').value;
   const errorMsg = document.getElementById('auth-error-msg');
+  const btn = document.getElementById('btn-submit-register');
+
+  if (btn.disabled) return;
 
   if (!email || !username || !password) {
     errorMsg.innerText = 'Please fill in all registration fields';
     errorMsg.style.display = 'block';
     return;
   }
+
+  btn.disabled = true;
+  const originalText = btn.innerText;
+  btn.innerText = 'Creating Account...';
 
   try {
     const res = await fetch('/api/auth/register', {
@@ -739,13 +769,15 @@ async function handleRegister() {
     document.getElementById('auth-overlay').style.display = 'none';
     showToast('Registered and logged in successfully', 'success');
 
-    // Reload UI
     initWebSocket();
     fetchFiles();
     fetchServerSettings();
   } catch (err) {
     errorMsg.innerText = err.message;
     errorMsg.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.innerText = originalText;
   }
 }
 
@@ -1112,16 +1144,23 @@ async function deleteFileFromServer(fileId) {
   });
 
   newBtnConfirm.addEventListener('click', async () => {
-    if (overlay) overlay.style.display = 'none';
+    if (newBtnConfirm.disabled) return;
+    newBtnConfirm.disabled = true;
+    const originalText = newBtnConfirm.innerText;
+    newBtnConfirm.innerText = 'Deleting...';
     try {
       const res = await secureFetch(`/api/files/${fileId}`, {
         method: 'DELETE'
       });
       if (!res.ok) throw new Error('Delete file failed');
+      if (overlay) overlay.style.display = 'none';
       showToast('File deleted successfully', 'success');
       fetchFiles();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      newBtnConfirm.disabled = false;
+      newBtnConfirm.innerText = originalText;
     }
   });
 }
@@ -1991,18 +2030,7 @@ async function handleIncomingSignal(senderId, signal) {
         document.getElementById('p2p-prompt-overlay').style.display = 'none';
         state.pendingInvite = null;
       }
-      const cancelledTx = state.transfers.get(signal.transferId);
-      if (cancelledTx) {
-        if (cancelledTx.dataChannel) {
-          try { cancelledTx.dataChannel.close(); } catch (e) {}
-        }
-        closePeerConnection(senderId);
-        state.transfers.delete(signal.transferId);
-        renderTransferQueue();
-        updateTransferCountBadge();
-        renderFileList();
-      }
-      showToast(`${senderName} cancelled transfer`, 'info');
+      cancelTransfer(signal.transferId, true);
       break;
   }
 }
@@ -2128,6 +2156,15 @@ function transmitP2PFile(transfer, targetId) {
   let timeLastCheck = Date.now();
   
   channel.bufferedAmountLowThreshold = LOW_BUFFERED_AMOUNT;
+  
+  channel.onmessage = (e) => {
+    try {
+      const payload = JSON.parse(e.data);
+      if (payload.type === 'transfer_cancel') {
+        cancelTransfer(payload.transferId, true);
+      }
+    } catch (err) {}
+  };
   
   let isSending = false;
   let currentBlock = null;
@@ -2351,6 +2388,22 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
               renderTransferQueue();
               updateTransferCountBadge();
               closePeerConnection(senderId);
+
+              secureFetch('/api/files/p2p-metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  fileId: transfer.id,
+                  name: transfer.name,
+                  size: transfer.size,
+                  mimeType: context.invite.fileType || 'application/octet-stream',
+                  senderId: senderId,
+                  receiverId: state.clientId,
+                  fileHash: computedHash
+                })
+              }).then(() => {
+                fetchFiles();
+              }).catch(err => console.error('Failed to save P2P metadata:', err));
             }).catch(() => {
               transfer.status = 'failed';
               transfer.eta = 'Verification failed';
@@ -2404,7 +2457,7 @@ async function setupReceiverPeerConnection(senderId, sdpOffer, transferId) {
 function requestP2PFileShare(targetClientId) {
   const input = document.createElement('input');
   input.type = 'file';
-  input.onchange = (e) => {
+  input.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
@@ -2742,8 +2795,11 @@ function sendJoinMessage(otpCode = null, joinToken = null, roomId = null) {
       deviceInfo: { platform: navigator.platform, userAgent: navigator.userAgent }
     };
 
+    const guestSessionToken = safeLocalStorage.getItem('aerosync_guest_session_token');
     if (state.sessionToken) {
       payload.sessionToken = state.sessionToken;
+    } else if (guestSessionToken) {
+      payload.sessionToken = guestSessionToken;
     }
 
     const finalJoinToken = joinToken || state.joinToken;
@@ -3358,3 +3414,98 @@ async function handlePlanUpgrade(planId) {
     showToast(err.message, 'error');
   }
 }
+
+// --------------------------------------------------------------------------
+// KEYBOARD ACCESSIBILITY & FOCUS MANAGEMENT
+// --------------------------------------------------------------------------
+document.addEventListener('keydown', (event) => {
+  const activeEl = document.activeElement;
+  
+  if (event.key === 'Enter') {
+    // 1. Login form submit
+    if (activeEl && (activeEl.id === 'login-username' || activeEl.id === 'login-password')) {
+      event.preventDefault();
+      handleLogin();
+    }
+    // 2. Signup form submit
+    else if (activeEl && (activeEl.id === 'reg-email' || activeEl.id === 'reg-username' || activeEl.id === 'reg-password')) {
+      event.preventDefault();
+      handleRegister();
+    }
+    // 3. Guest OTP / Join code submit
+    else if (activeEl && (activeEl.id === 'auth-username' || activeEl.id === 'auth-otp')) {
+      event.preventDefault();
+      const btn = document.getElementById('btn-submit-auth');
+      if (btn) btn.click();
+    }
+    // 4. Share email submit
+    else if (activeEl && activeEl.id === 'share-email-input') {
+      event.preventDefault();
+      const btn = document.getElementById('btn-grant-access');
+      if (btn) btn.click();
+    }
+    // 5. Delete confirmation submit
+    else {
+      const delOverlay = document.getElementById('delete-confirm-overlay');
+      if (delOverlay && delOverlay.style.display === 'flex') {
+        event.preventDefault();
+        const btn = document.getElementById('btn-confirm-delete');
+        if (btn) btn.click();
+      }
+      
+      // 6. P2P Prompt accept submit
+      const p2pOverlay = document.getElementById('p2p-prompt-overlay');
+      if (p2pOverlay && p2pOverlay.style.display === 'flex') {
+        event.preventDefault();
+        const btn = document.getElementById('btn-accept-transfer');
+        if (btn) btn.click();
+      }
+    }
+  } 
+  
+  else if (event.key === 'Escape') {
+    // Escape closes modals
+    const p2pOverlay = document.getElementById('p2p-prompt-overlay');
+    if (p2pOverlay && p2pOverlay.style.display !== 'none') {
+      declineIncomingP2P();
+    }
+    
+    document.querySelectorAll('.prompt-overlay').forEach(overlay => {
+      overlay.style.display = 'none';
+    });
+  }
+});
+
+// Mutation observer to handle focus automatically when prompt-overlays are opened
+const modalObserver = new MutationObserver((mutations) => {
+  mutations.forEach((mutation) => {
+    if (mutation.attributeName === 'style') {
+      const target = mutation.target;
+      if (target.classList.contains('prompt-overlay') && target.style.display === 'flex') {
+        const inputs = target.querySelectorAll('input:not([type="hidden"]), select, button');
+        const visibleInputs = Array.from(inputs).filter(el => {
+          let parent = el;
+          while (parent) {
+            if (parent.style && parent.style.display === 'none') return false;
+            parent = parent.parentElement;
+          }
+          return true;
+        });
+        if (visibleInputs.length > 0) {
+          if (target.id === 'delete-confirm-overlay') {
+            const cancelBtn = target.querySelector('#btn-cancel-delete');
+            if (cancelBtn) {
+              cancelBtn.focus();
+              return;
+            }
+          }
+          visibleInputs[0].focus();
+        }
+      }
+    }
+  });
+});
+
+document.querySelectorAll('.prompt-overlay').forEach((overlay) => {
+  modalObserver.observe(overlay, { attributes: true });
+});

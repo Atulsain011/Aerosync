@@ -450,6 +450,9 @@ router.post('/upload/complete', async (req, res) => {
     }
     saveDb();
 
+    // Broadcast file completion to all LAN clients to refresh their explorer lists in real-time
+    broadcastWebSocketMessage({ type: 'file_shared', fileId });
+
     // Create Audit Log
     addAuditLog(fileId, ownerId, 'upload', `Uploaded file '${meta.name}' in LAN Mode (Local storage). Size: ${meta.size} bytes.`);
 
@@ -712,6 +715,28 @@ router.get('/files', (req, res) => {
     }
   });
 
+  // Automatically share completed local LAN files with everyone on LAN (only if owned by LAN host or guest peer)
+  db.files.forEach(file => {
+    if (file.status !== 'pending' && file.storage_type === 'local' && file.owner_user_id !== currentUserId) {
+      const isLanPeerFile = file.owner_user_id === 'host' || file.owner_user_id.startsWith('guest_');
+      if (isLanPeerFile) {
+        if (!sharedWithMe.some(sf => sf.id === file.id)) {
+          const owner = db.users.find(u => u.id === file.owner_user_id);
+          sharedWithMe.push({
+            id: file.id,
+            name: file.name,
+            size: file.size,
+            mimeType: file.mimeType,
+            created_at: file.created_at,
+            storage_type: file.storage_type,
+            ownerEmail: owner ? owner.email : 'Unknown owner',
+            permission: 'download'
+          });
+        }
+      }
+    }
+  });
+
   if (req.baseUrl === '/api/transfer') {
     const allFiles = [...myFiles];
     sharedWithMe.forEach(sf => {
@@ -793,13 +818,14 @@ const downloadFileHandler = async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    // Access check: owner OR has download permission
+    // Access check: owner OR has download permission OR local LAN file owned by a LAN peer
     const hasOwnerAccess = file.owner_user_id === currentUserId;
     const hasShareAccess = db.file_access.some(
       a => a.file_id === id && a.user_id === currentUserId && a.permission === 'download'
     );
+    const isLocalLanPeerFile = file.storage_type === 'local' && (file.owner_user_id === 'host' || file.owner_user_id.startsWith('guest_'));
 
-    if (!hasOwnerAccess && !hasShareAccess) {
+    if (!hasOwnerAccess && !hasShareAccess && !isLocalLanPeerFile) {
       return res.status(403).json({ error: 'Access denied: Download permission is required' });
     }
 

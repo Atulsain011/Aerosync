@@ -1785,12 +1785,23 @@ async function finalizeUploadAssembly(transfer) {
     }
     
     if (!res.ok) throw new Error('File assembly completion failed');
+    const resData = await res.json().catch(() => ({}));
+    const fileId = resData.fileId;
     deleteProgress(transfer.id);
     
     transfer.status = 'completed';
     transfer.progress = 100;
     transfer.eta = 'Done';
     showToast(`File ${transfer.name} uploaded successfully!`, 'success');
+    
+    // Notify peer if P2P fallback upload
+    if (transfer.fallbackTargetId && fileId) {
+      sendSignal(transfer.fallbackTargetId, {
+        type: 'p2p-fallback-ready',
+        name: transfer.name,
+        fileId: fileId
+      });
+    }
     
     renderTransferQueue();
     fetchFiles();
@@ -2697,7 +2708,12 @@ function cancelTransfer(transferId, remoteTriggered = false) {
   const transfer = state.transfers.get(transferId);
   if (!transfer) return;
   
-  if (!remoteTriggered && transfer.status !== 'cancelled' && transfer.status !== 'failed' && transfer.status !== 'completed') {
+  // Guard: If transfer is already in a terminal state, exit immediately to prevent loop
+  if (transfer.status === 'cancelled' || transfer.status === 'failed' || transfer.status === 'completed') {
+    return;
+  }
+  
+  if (!remoteTriggered) {
     if (!confirm(`Cancel transfer of ${transfer.name}?`)) return;
   }
 
@@ -2730,8 +2746,8 @@ function cancelTransfer(transferId, remoteTriggered = false) {
     } catch (e) {}
   }
 
-  // Send WebSockets signal fallback if P2P
-  if (transfer.type.includes('P2P') && transfer.peerId) {
+  // Send WebSockets signal fallback if P2P (only if NOT remoteTriggered)
+  if (!remoteTriggered && transfer.type.includes('P2P') && transfer.peerId) {
     sendSignal(transfer.peerId, {
       type: 'p2p-cancel',
       transferId: transferId
@@ -2937,7 +2953,10 @@ function initWebSocket() {
           break;
 
         case 'file_shared':
-          showToast('A new file has been shared with you!', 'success');
+          // Only show notification if we are not the owner of this file
+          if (!state.myFiles.some(f => f.id === msg.fileId)) {
+            showToast('A new file is available on the network!', 'success');
+          }
           fetchFiles();
           break;
           

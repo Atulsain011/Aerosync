@@ -385,7 +385,160 @@ section{padding:6.5rem 0}
   .windows-preview .desktop-main{padding:11px}
 }
 
+
+/* Platform/download cards: keep normal appearance, highlight blue on hover/focus. */
+.platform-btn,
+.choice{
+  transition:color .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease,transform .18s ease;
+}
+.platform-btn:hover,
+.platform-btn:focus-visible,
+.choice:hover,
+.choice:focus-visible{
+  color:var(--cyan)!important;
+  border-color:var(--cyan)!important;
+  background:var(--raised);
+  box-shadow:0 0 0 1px rgba(0,217,255,.18),0 0 18px rgba(0,217,255,.12);
+  outline:none;
+}
+.choice:hover .choice-icon,
+.choice:focus-visible .choice-icon{
+  color:var(--cyan)!important;
+  border-color:rgba(0,217,255,.35)!important;
+}
+
 </style>
+
+<style id="aerosync-platform-hover">
+/* Platform downloads: all neutral by default; only the hovered/focused item turns blue */
+.download-row .platform-download {
+    color: var(--text) !important;
+    background: var(--raised) !important;
+    border: 1px solid var(--border2) !important;
+    box-shadow: none !important;
+    transition:
+        background .18s ease,
+        border-color .18s ease,
+        color .18s ease,
+        box-shadow .18s ease,
+        transform .18s ease;
+}
+
+.download-row .platform-download:hover,
+.download-row .platform-download:focus-visible {
+    color: #03101a !important;
+    background: linear-gradient(100deg, var(--cyan), #3fa8ff 60%, var(--violet)) !important;
+    border-color: transparent !important;
+    box-shadow: 0 8px 30px -8px rgba(0,217,255,.55) !important;
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.download-row .platform-download svg {
+    transition: color .18s ease, stroke .18s ease;
+}
+
+.download-row .platform-download:hover svg,
+.download-row .platform-download:focus-visible svg {
+    color: #03101a !important;
+    stroke: currentColor !important;
+}
+
+/* Top hero platform buttons follow exactly the same behavior */
+.hero-ctas .platform-download {
+    color: var(--text) !important;
+    background: var(--raised) !important;
+    border: 1px solid var(--border2) !important;
+    box-shadow: none !important;
+}
+
+.hero-ctas .platform-download:hover,
+.hero-ctas .platform-download:focus-visible {
+    color: #03101a !important;
+    background: linear-gradient(100deg, var(--cyan), #3fa8ff 60%, var(--violet)) !important;
+    border-color: transparent !important;
+    box-shadow: 0 8px 30px -8px rgba(0,217,255,.55) !important;
+    outline: none;
+}
+
+/* No permanent Windows highlight */
+.download-row .platform-download.btn-primary,
+.hero-ctas .platform-download.btn-primary {
+    color: var(--text) !important;
+    background: var(--raised) !important;
+    border: 1px solid var(--border2) !important;
+    box-shadow: none !important;
+}
+
+
+<style id="aerosync-platform-hover-correct">
+/* PLATFORM DOWNLOAD BUTTONS
+   Default = dark. Hover/focus = blue. Only the item under the pointer changes. */
+.platform-btn {
+    color: var(--text) !important;
+    background: var(--raised) !important;
+    border: 1px solid var(--line2) !important;
+    box-shadow: none !important;
+    transform: none;
+    transition:
+        color .18s ease,
+        background .18s ease,
+        border-color .18s ease,
+        box-shadow .18s ease,
+        transform .18s ease;
+}
+
+.platform-btn:hover,
+.platform-btn:focus-visible {
+    color: #03101a !important;
+    background: linear-gradient(
+        100deg,
+        var(--cyan),
+        #3fa8ff 60%,
+        var(--violet)
+    ) !important;
+    border-color: transparent !important;
+    box-shadow: 0 8px 24px -8px rgba(0,217,255,.55) !important;
+    transform: translateY(-2px);
+    outline: none;
+}
+
+.platform-btn:active {
+    transform: translateY(0);
+}
+
+/* Keep the platform icons visible and matching the button text */
+.platform-btn svg {
+    color: currentColor;
+    transition: color .18s ease;
+}
+
+/* Modal platform choices: same blue hover treatment */
+.choice {
+    transition:
+        color .18s ease,
+        background .18s ease,
+        border-color .18s ease,
+        box-shadow .18s ease,
+        transform .18s ease;
+}
+
+.choice:hover,
+.choice:focus-within {
+    border-color: var(--cyan) !important;
+    background: rgba(0,217,255,.07) !important;
+    box-shadow:
+        0 0 0 1px rgba(0,217,255,.18),
+        0 0 18px rgba(0,217,255,.12) !important;
+}
+
+/* Do not permanently highlight Windows */
+.platform-btn,
+.choice {
+    outline: none;
+}
+</style>
+
 </head>
 <body>
 
@@ -416,7 +569,7 @@ section{padding:6.5rem 0}
 
     <div class="d-flex flex-wrap gap-3 mb-5">
       <button class="platform-btn" data-bs-toggle="modal" data-bs-target="#dlModal" data-tab="win"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg> Download for Windows</button>
-      <a class="platform-btn" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.apk"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8.2 8.6h7.6c.7 0 1.2.5 1.2 1.2v6.1c0 .7-.5 1.2-1.2 1.2H8.2c-.7 0-1.2-.5-1.2-1.2V9.8c0-.7.5-1.2 1.2-1.2Z"/><path d="M9 8.3 7.7 5.8l.9-.4 1.3 2.5 4.2-1.1 1.3-2.4.9.4-1.2 2.5c.8.3 1.3 1 1.3 1.8H7.7c0-.8.5-1.5 1.3-1.8ZM8.2 18h1.5v2.5H8.2V18Zm6.1 0h1.5v2.5h-1.5V18ZM5 10.5h1.2v5.2H5v-5.2Zm12.8 0H19v5.2h-1.2v-5.2Z" stroke="currentColor" stroke-width=".6"/></svg> Download for Android</a>
+      <a class="platform-btn" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync.apk"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8.2 8.6h7.6c.7 0 1.2.5 1.2 1.2v6.1c0 .7-.5 1.2-1.2 1.2H8.2c-.7 0-1.2-.5-1.2-1.2V9.8c0-.7.5-1.2 1.2-1.2Z"/><path d="M9 8.3 7.7 5.8l.9-.4 1.3 2.5 4.2-1.1 1.3-2.4.9.4-1.2 2.5c.8.3 1.3 1 1.3 1.8H7.7c0-.8.5-1.5 1.3-1.8ZM8.2 18h1.5v2.5H8.2V18Zm6.1 0h1.5v2.5h-1.5V18ZM5 10.5h1.2v5.2H5v-5.2Zm12.8 0H19v5.2h-1.2v-5.2Z" stroke="currentColor" stroke-width=".6"/></svg> Download for Android</a>
       <button class="platform-btn" data-bs-toggle="modal" data-bs-target="#dlModal" data-tab="linux"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="var(--bg)"/><circle cx="14" cy="7.9" r="0.9" fill="var(--bg)"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="var(--bg)"/></svg> Download for Linux</button>
     </div>
 
@@ -648,7 +801,7 @@ section{padding:6.5rem 0}
         <div class="step-row d-flex gap-3"><div class="step-num">04</div><div><strong>Pair &amp; transfer</strong><p class="small mb-0" style="color:var(--muted)">Select the discovered device and send files.</p></div></div>
       </div>
       <div class="tab-pane fade" id="t-and">
-        <div class="step-row d-flex gap-3"><div class="step-num">01</div><div><strong>Download the APK</strong><p class="small mb-0" style="color:var(--muted)">Get app-debug.apk from the release page.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">01</div><div><strong>Download the APK</strong><p class="small mb-0" style="color:var(--muted)">Get AeroSync.apk from the release page.</p></div></div>
         <div class="step-row d-flex gap-3"><div class="step-num">02</div><div><strong>Install &amp; grant permissions</strong><p class="small mb-0" style="color:var(--muted)">Allow install from source, then Nearby Devices / Storage access.</p></div></div>
         <div class="step-row d-flex gap-3"><div class="step-num">03</div><div><strong>Join the same network</strong><p class="small mb-0" style="color:var(--muted)">Connect to the same Wi-Fi or hotspot.</p></div></div>
         <div class="step-row d-flex gap-3"><div class="step-num">04</div><div><strong>Transfer</strong><p class="small mb-0" style="color:var(--muted)">Select the PC or Linux device and send files.</p></div></div>
@@ -684,7 +837,7 @@ section{padding:6.5rem 0}
       <p class="mb-4" style="color:var(--muted);max-width:480px;margin-inline:auto">Download the current Windows, Android and Linux builds from the latest release.</p>
       <div class="d-flex flex-wrap justify-content-center gap-3">
         <button class="platform-btn" data-bs-toggle="modal" data-bs-target="#dlModal"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg> Windows</button>
-        <a class="platform-btn" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.apk"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8.2 8.6h7.6c.7 0 1.2.5 1.2 1.2v6.1c0 .7-.5 1.2-1.2 1.2H8.2c-.7 0-1.2-.5-1.2-1.2V9.8c0-.7.5-1.2 1.2-1.2Z"/><path d="M9 8.3 7.7 5.8l.9-.4 1.3 2.5 4.2-1.1 1.3-2.4.9.4-1.2 2.5c.8.3 1.3 1 1.3 1.8H7.7c0-.8.5-1.5 1.3-1.8ZM8.2 18h1.5v2.5H8.2V18Zm6.1 0h1.5v2.5h-1.5V18ZM5 10.5h1.2v5.2H5v-5.2Zm12.8 0H19v5.2h-1.2v-5.2Z" stroke="currentColor" stroke-width=".6"/></svg> Android</a>
+        <a class="platform-btn" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync.apk"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8.2 8.6h7.6c.7 0 1.2.5 1.2 1.2v6.1c0 .7-.5 1.2-1.2 1.2H8.2c-.7 0-1.2-.5-1.2-1.2V9.8c0-.7.5-1.2 1.2-1.2Z"/><path d="M9 8.3 7.7 5.8l.9-.4 1.3 2.5 4.2-1.1 1.3-2.4.9.4-1.2 2.5c.8.3 1.3 1 1.3 1.8H7.7c0-.8.5-1.5 1.3-1.8ZM8.2 18h1.5v2.5H8.2V18Zm6.1 0h1.5v2.5h-1.5V18ZM5 10.5h1.2v5.2H5v-5.2Zm12.8 0H19v5.2h-1.2v-5.2Z" stroke="currentColor" stroke-width=".6"/></svg> Android</a>
         <button class="platform-btn" data-bs-toggle="modal" data-bs-target="#dlModal"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="var(--bg)"/><circle cx="14" cy="7.9" r="0.9" fill="var(--bg)"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="var(--bg)"/></svg> Linux</button>
       </div>
       <p class="mono mt-4 mb-1" style="font-size:.72rem;color:var(--dim)">v1.0.7 · MIT Licensed · Windows 10/11 x64 · Android 8.0+ · Linux x86_64</p>
@@ -702,25 +855,34 @@ section{padding:6.5rem 0}
         <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body d-flex flex-column gap-2">
+        <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-Setup-v1.0.7.exe">
+          <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg></span>
+          <span class="flex-fill"><strong class="d-flex align-items-center gap-2">Windows Setup Installer <span class="badge badge-rec">RECOMMENDED</span></strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync-Setup-v1.0.7.exe</span></span>
+          <span class="mono" style="color:var(--cyan)">↓</span>
+        </a>
+
         <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync.exe">
           <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg></span>
-          <span class="flex-fill"><strong class="d-flex align-items-center gap-2">Windows EXE <span class="badge badge-rec">RECOMMENDED</span></strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync.exe</span></span>
+          <span class="flex-fill"><strong>Windows Standalone EXE</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync.exe</span></span>
           <span class="mono" style="color:var(--cyan)">↓</span>
         </a>
-        <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-Windows-v1.0.7.zip">
+
+        <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-Windows-Portable.zip">
           <span class="choice-icon">▤</span>
-          <span class="flex-fill"><strong>Windows Portable ZIP</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync-Windows-v1.0.7.zip</span></span>
+          <span class="flex-fill"><strong>Windows Portable ZIP</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync-Windows-Portable.zip</span></span>
           <span class="mono" style="color:var(--cyan)">↓</span>
         </a>
-        <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.apk">
+
+        <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync.apk">
           <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8.2 8.6h7.6c.7 0 1.2.5 1.2 1.2v6.1c0 .7-.5 1.2-1.2 1.2H8.2c-.7 0-1.2-.5-1.2-1.2V9.8c0-.7.5-1.2 1.2-1.2Z"/><path d="M9 8.3 7.7 5.8l.9-.4 1.3 2.5 4.2-1.1 1.3-2.4.9.4-1.2 2.5c.8.3 1.3 1 1.3 1.8H7.7c0-.8.5-1.5 1.3-1.8ZM8.2 18h1.5v2.5H8.2V18Zm6.1 0h1.5v2.5h-1.5V18ZM5 10.5h1.2v5.2H5v-5.2Zm12.8 0H19v5.2h-1.2v-5.2Z" stroke="currentColor" stroke-width=".6"/></svg></span>
-          <span class="flex-fill"><strong>Android APK</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">app-debug.apk</span></span>
+          <span class="flex-fill"><strong>Android APK</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AeroSync.apk</span></span>
           <span class="mono" style="color:var(--cyan)">↓</span>
         </a>
+
         <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/tag/v1.0.7">
           <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="var(--bg)"/><circle cx="14" cy="7.9" r="0.9" fill="var(--bg)"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="var(--bg)"/></svg></span>
-          <span class="flex-fill"><strong>Linux (AppImage / DEB / TAR.GZ)</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">See release page for all Linux packages</span></span>
-          <span class="mono" style="color:var(--cyan)">↓</span>
+          <span class="flex-fill"><strong>Linux</strong><span class="d-block mono" style="font-size:.7rem;color:var(--dim)">AppImage · DEB · TAR.GZ — Release page</span></span>
+          <span class="mono" style="color:var(--cyan)">↗</span>
         </a>
       </div>
     </div>

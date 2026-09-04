@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AeroSync — Direct-to-device file transfer</title>
+<meta name="description" content="AeroSync is a peer-to-peer file transfer application for Windows, Android and Linux over local Wi-Fi and hotspot.">
+<link rel="icon" type="image/png" href="data:image/png;base64,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">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+:root{
+  --bg:#ffffff; --bg-alt:#f7f8fa; --panel:#ffffff; --border:#e6e9ef; --border-strong:#d7dbe3;
+  --brand:#2454e8; --brand-dark:#1c40c2; --brand-soft:#eef2ff;
+  --success:#178a52; --success-soft:#eafaf1;
+  --text:#171a21; --muted:#5c6472; --dim:#8a91a0;
+  --mock-bg:#0e1117; --mock-panel:#151922; --mock-panel2:#1b202b; --mock-border:#262c39;
+  --mock-text:#eef0f4; --mock-muted:#8b93a3; --mock-dim:#5a6273;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --bs-body-bg:var(--bg); --bs-body-color:var(--text); --bs-border-color:var(--border);
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--text)}
+a{color:var(--brand);text-decoration:none}
+.mono{font-family:var(--mono)}
+svg{display:block}
+
+.aero-logo{width:30px;height:30px;border-radius:7px;background:url(data:image/png;base64,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) center/contain no-repeat;flex:none}
+
+/* ---------- NAV ---------- */
+.navbar{background:rgba(255,255,255,.92)!important;backdrop-filter:blur(8px);border-bottom:1px solid var(--border)}
+.navbar-brand{font-weight:700;color:var(--text)!important;font-size:1.02rem}
+.nav-link{color:var(--muted)!important;font-size:.9rem}
+.nav-link:hover{color:var(--text)!important}
+.btn-outline-nav{border:1px solid var(--border-strong);color:var(--text);background:#fff;border-radius:7px;font-weight:600}
+.btn-outline-nav:hover{border-color:var(--dim);background:var(--bg-alt)}
+
+/* ---------- BUTTONS ---------- */
+.btn-primary-solid{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:11px 22px;border-radius:8px;font-weight:600;font-size:.92rem;
+  background:var(--brand);color:#fff;border:1px solid var(--brand);
+  transition:background .15s ease,border-color .15s ease;
+}
+.btn-primary-solid:hover{background:var(--brand-dark);border-color:var(--brand-dark);color:#fff}
+.btn-secondary-outline{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  padding:11px 22px;border-radius:8px;font-weight:600;font-size:.92rem;
+  background:#fff;color:var(--text);border:1px solid var(--border-strong);
+  transition:background .15s ease,border-color .15s ease;
+}
+.btn-secondary-outline:hover{background:var(--bg-alt);border-color:var(--dim);color:var(--text)}
+
+.platform-btn{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  min-width:180px;padding:12px 20px;border-radius:8px;font-weight:600;font-size:.9rem;
+  color:var(--text);background:#fff;border:1px solid var(--border-strong);
+  transition:background .15s ease,border-color .15s ease;
+}
+.platform-btn svg{width:17px;height:17px;flex:none}
+.platform-btn:hover,.platform-btn:focus-visible{background:var(--bg-alt);border-color:var(--dim);color:var(--text);outline:none}
+.platform-btn.is-detected{background:var(--brand);border-color:var(--brand);color:#fff}
+.platform-btn.is-detected:hover{background:var(--brand-dark);border-color:var(--brand-dark);color:#fff}
+.platform-btn .rec-tag{
+  position:absolute;top:-9px;right:-6px;background:var(--success);color:#fff;
+  font-family:var(--mono);font-size:.55rem;font-weight:700;letter-spacing:.03em;
+  padding:2px 6px;border-radius:100px;white-space:nowrap;
+}
+
+/* ---------- HERO ---------- */
+.eyebrow{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:.75rem;color:var(--muted);letter-spacing:.02em}
+.eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--success)}
+h1{font-weight:700;font-size:clamp(2rem,4.2vw,3.1rem);line-height:1.14;letter-spacing:-.02em;max-width:720px;color:var(--text)}
+.lede{color:var(--muted);max-width:540px;font-size:1.02rem;line-height:1.6}
+
+/* ---------- SECTION SHELL ---------- */
+section{padding:5rem 0}
+section.alt{background:var(--bg-alt)}
+header.hero-section{padding:6.5rem 0 4.5rem}
+.kicker{color:var(--brand);font-family:var(--mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
+.section-title{font-weight:700;font-size:clamp(1.5rem,2.8vw,2rem);letter-spacing:-.015em;color:var(--text)}
+.section-lede{color:var(--muted);max-width:560px;font-size:.96rem}
+
+.card{background:#fff;border:1px solid var(--border);border-radius:10px;transition:border-color .15s ease,box-shadow .15s ease}
+.card:hover{border-color:var(--border-strong);box-shadow:0 4px 16px rgba(20,25,40,.05)}
+.icon-chip{width:38px;height:38px;border-radius:8px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;color:var(--brand)}
+.icon-chip svg{width:18px;height:18px}
+
+/* ---------- WINDOWS PREVIEW ---------- */
+.device-frame{border:1px solid var(--border);border-radius:10px;background:var(--mock-panel);color:var(--mock-text);overflow:hidden;box-shadow:0 6px 20px rgba(20,25,40,.06)}
+.win-titlebar{height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--mock-panel2);border-bottom:1px solid var(--mock-border)}
+.win-titlebar .dot{width:9px;height:9px;border-radius:50%}
+.win-titlebar strong{font-size:.78rem;color:var(--mock-muted);font-weight:600}
+.win-status{margin-left:auto;font-family:var(--mono);font-size:.68rem;color:#5ed08a;display:flex;align-items:center;gap:5px}
+.win-status::before{content:"";width:5px;height:5px;border-radius:50%;background:#5ed08a}
+.win-body{display:flex}
+.win-sidebar{width:150px;border-right:1px solid var(--mock-border);padding:.9rem .5rem;flex:none}
+.win-nav{display:flex;align-items:center;gap:9px;padding:.5rem .6rem;border-radius:6px;color:var(--mock-muted);font-size:.78rem;margin-bottom:2px}
+.win-nav svg{width:15px;height:15px;flex:none}
+.win-nav.active{color:#fff;background:var(--mock-panel2)}
+.win-main{flex:1;padding:1.1rem;min-width:0}
+.win-hero{border:1px solid var(--mock-border);border-radius:8px;background:var(--mock-panel2);padding:.9rem 1.1rem;display:flex;flex-wrap:wrap;gap:.8rem;justify-content:space-between;align-items:center}
+.win-pill{display:inline-flex;align-items:center;gap:5px;font-size:.62rem;color:var(--mock-muted);background:var(--mock-panel);border:1px solid var(--mock-border);border-radius:100px;padding:.2rem .55rem;margin-bottom:.4rem}
+.win-hero h4{margin:0;font-size:1.02rem;font-weight:700;color:#fff}
+.win-hero p{margin:.15rem 0 0;color:var(--mock-muted);font-size:.72rem}
+.win-actions{display:flex;gap:.5rem}
+.win-btn{border:0;border-radius:6px;padding:.5rem .8rem;font-size:.7rem;font-weight:700;display:flex;align-items:center;gap:5px}
+.win-btn.p{background:#fff;color:#111}
+.win-btn.s{background:var(--mock-panel2);border:1px solid var(--mock-border);color:var(--mock-text)}
+.win-btn svg{width:13px;height:13px}
+.win-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.55rem;margin:.9rem 0}
+.win-stat{background:var(--mock-panel2);border:1px solid var(--mock-border);border-radius:7px;padding:.55rem .65rem}
+.win-stat .k{font-size:.58rem;color:var(--mock-dim);text-transform:uppercase;font-family:var(--mono);letter-spacing:.03em}
+.win-stat .v{margin-top:2px;font-size:.82rem;font-weight:700}
+.win-stat .h{font-size:.58rem;color:var(--mock-dim);margin-top:1px}
+.win-drop{border:1px dashed var(--mock-border);border-radius:8px;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:.4rem}
+.win-drop .up-icon{width:36px;height:36px;border-radius:50%;background:var(--mock-panel2);color:var(--mock-muted);display:flex;align-items:center;justify-content:center}
+.win-drop .up-icon svg{width:17px;height:17px}
+.win-drop strong{font-size:.8rem;color:var(--mock-text)}
+.win-drop span{font-size:.68rem;color:var(--mock-dim)}
+.win-nearby{display:flex;justify-content:space-between;align-items:center;margin-top:.9rem;font-size:.78rem;font-weight:700}
+.win-nearby-note{font-size:.66rem;color:var(--mock-dim);margin-top:.15rem}
+
+/* ---------- ANDROID PREVIEW ---------- */
+.phone-shell{width:100%;max-width:240px;margin:0 auto;border:1px solid var(--border);border-radius:24px;padding:8px;background:var(--mock-panel);color:var(--mock-text);box-shadow:0 6px 20px rgba(20,25,40,.06)}
+.phone-screen{background:var(--mock-bg);border-radius:17px;padding:14px 13px;min-height:460px}
+.phone-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:.9rem}
+.phone-brand{display:flex;align-items:center;gap:6px;font-size:.85rem;font-weight:700}
+.phone-brand svg{width:16px;height:16px;color:var(--mock-muted)}
+.phone-tabs{display:flex;gap:3px;background:var(--mock-panel2);border-radius:8px;padding:3px;margin-bottom:1rem}
+.phone-tab{flex:1;text-align:center;font-size:.62rem;font-weight:700;padding:.4rem 0;border-radius:6px;color:var(--mock-dim)}
+.phone-tab.active{background:var(--mock-border);color:#fff}
+.phone-drop{height:165px;border-radius:10px;background:var(--mock-panel2);border:1px dashed var(--mock-border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem}
+.phone-drop .up{width:48px;height:48px;border-radius:10px;background:var(--mock-border);display:flex;align-items:center;justify-content:center}
+.phone-drop .up svg{width:20px;height:20px;color:#fff}
+.phone-drop strong{font-size:.76rem}
+.phone-drop span{font-size:.62rem;color:var(--mock-dim)}
+.phone-browse{margin-top:.8rem;padding:.6rem;border-radius:8px;text-align:center;font-size:.7rem;font-weight:700;color:#111;background:#fff;display:flex;align-items:center;justify-content:center;gap:6px}
+.phone-browse svg{width:14px;height:14px}
+.phone-rows{display:flex;flex-direction:column;gap:.5rem;margin-top:.8rem}
+.phone-row{display:flex;align-items:center;gap:.55rem;padding:.5rem .6rem;border-radius:8px;background:var(--mock-panel2)}
+.phone-row .ic{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex:none;background:var(--mock-border);color:var(--mock-muted)}
+.phone-row .ic svg{width:12px;height:12px}
+.phone-row .copy{flex:1;min-width:0}
+.phone-row strong{display:block;font-size:.68rem}
+.phone-row small{display:block;font-size:.58rem;color:var(--mock-dim);font-weight:400}
+.phone-row .chev{color:var(--mock-dim);width:14px;height:14px;flex:none}
+.phone-secure{margin-top:.55rem;padding:.5rem .6rem;border-radius:8px;border:1px solid var(--mock-border);background:var(--mock-panel2);display:flex;align-items:center;gap:6px;font-size:.62rem;font-weight:700;color:#5ed08a}
+.phone-secure svg{width:13px;height:13px}
+
+/* ---------- LINUX TERMINAL PREVIEW ---------- */
+.terminal{background:var(--mock-bg);min-height:220px;font-family:var(--mono);font-size:.76rem;line-height:1.85;color:var(--mock-text)}
+.terminal .t-prompt{color:#5ed08a;font-weight:700}
+.terminal .t-muted{color:var(--mock-dim)}
+.terminal .t-ok{color:#7db3ff}
+
+/* ---------- ARCHITECTURE ---------- */
+.arch-box{background:var(--bg-alt);border:1px solid var(--border);border-radius:8px;padding:.65rem .95rem;font-size:.8rem}
+.arch-box.core{border-color:var(--brand);border-style:solid}
+.arch-box .d{color:var(--muted);font-size:.7rem;margin-top:2px}
+
+/* ---------- QUICK START ---------- */
+.nav-tabs{border-bottom:1px solid var(--border)}
+.nav-tabs .nav-link{color:var(--muted);border:none;border-bottom:2px solid transparent;font-size:.86rem;display:flex;align-items:center;gap:6px}
+.nav-tabs .nav-link svg{width:15px;height:15px}
+.nav-tabs .nav-link.active{background:transparent;color:var(--brand);border-bottom-color:var(--brand)}
+.step-row{border-top:1px solid var(--border);padding:.9rem 0}
+.step-row:first-child{border-top:none}
+.step-num{font-family:var(--mono);color:var(--brand);width:30px;flex:none;font-weight:700}
+
+/* ---------- SECURITY ---------- */
+.sec-check{width:28px;height:28px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center}
+.sec-check svg{width:14px;height:14px}
+
+/* ---------- CTA + MODAL ---------- */
+.cta-panel{border:1px solid var(--border);border-radius:12px;background:var(--bg-alt)}
+.modal-content{background:#fff;border:1px solid var(--border-strong);border-radius:10px;color:var(--text)}
+.dl-group-label{font-family:var(--mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:.9rem 0 .4rem}
+.dl-group-label:first-child{margin-top:0}
+.choice{background:#fff;border:1px solid var(--border);border-radius:8px;padding:.7rem .8rem;transition:border-color .15s ease,background .15s ease}
+.choice:hover,.choice:focus-visible{border-color:var(--border-strong);background:var(--bg-alt);outline:none}
+.choice-icon{width:32px;height:32px;border-radius:7px;background:var(--brand-soft);color:var(--brand);display:flex;align-items:center;justify-content:center;flex:none}
+.choice-icon svg{width:15px;height:15px}
+.badge-rec{background:var(--success-soft);color:var(--success);font-family:var(--mono);font-size:.56rem;font-weight:700}
+.dl-group.is-detected{border:1px solid var(--brand);border-radius:8px;padding:.6rem;background:var(--brand-soft)}
+.dl-group.is-detected .dl-group-label{color:var(--brand)}
+
+.reveal{opacity:0;transform:translateY(10px);transition:opacity .4s ease,transform .4s ease}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}.reveal{opacity:1;transform:none}}
+@media (max-width:767px){section{padding:3.5rem 0}.win-sidebar{display:none}.win-stats{grid-template-columns:repeat(2,1fr)}}
+
+/* ---------- SOFT OFF-WHITE SECTION BLOCKS ---------- */
+body {
+  background: #f3f1ec !important;
+  color: #182230;
+}
+
+body::before {
+  opacity: .35;
+}
+
+main > section {
+  padding: 42px 0;
+}
+
+main > section > .wrap {
+  background: #fff;
+  border: 1px solid rgba(24,34,48,.09);
+  border-radius: 22px;
+  padding: 58px 48px;
+  box-shadow: 0 8px 28px rgba(24,34,48,.055);
+}
+
+main > section.hero > .wrap {
+  background: #fff;
+  box-shadow: 0 10px 34px rgba(24,34,48,.06);
+}
+
+main > section#download > .wrap {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding-top: 28px;
+  padding-bottom: 28px;
+}
+
+@media (max-width: 700px) {
+  main > section {
+    padding: 24px 0;
+  }
+
+  main > section > .wrap {
+    padding: 38px 22px;
+    border-radius: 18px;
+  }
+}
+
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg fixed-top py-3">
+  <div class="container">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="#"><span class="aero-logo"></span>AeroSync</a>
+    <button class="navbar-toggler" style="border-color:var(--border-strong)" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
+        <li class="nav-item"><a class="nav-link px-3" href="#preview">Preview</a></li>
+        <li class="nav-item"><a class="nav-link px-3" href="#architecture">Architecture</a></li>
+        <li class="nav-item"><a class="nav-link px-3" href="#features">Features</a></li>
+        <li class="nav-item"><a class="nav-link px-3" href="#quickstart">Quick Start</a></li>
+        <li class="nav-item"><a class="nav-link px-3" href="#security">Security</a></li>
+        <li class="nav-item ms-lg-2"><a class="btn btn-outline-nav btn-sm" href="https://github.com/Atulsain011/Aero_sync" target="_blank" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<header class="hero-section">
+  <div class="container">
+    <p class="eyebrow mb-3"><span class="dot"></span>C++20 · Zero-copy engine · v1.0.7</p>
+    <h1>Send files directly between your devices over local Wi-Fi.</h1>
+    <p class="lede mt-3 mb-4">AeroSync is a peer-to-peer file transfer tool for Windows, Android and Linux. No uploads, no compression, no cloud step — just two devices on the same network.</p>
+    <div class="d-flex flex-wrap gap-3">
+      <button id="topDirectDownload" class="btn-primary-solid" type="button" aria-haspopup="dialog">
+        <span id="topDirectIcon" aria-hidden="true">↓</span>
+        <span id="topDirectText">Detecting device…</span>
+      </button>
+      <a href="https://github.com/Atulsain011/Aero_sync" target="_blank" rel="noopener" class="btn-secondary-outline">View on GitHub</a>
+    </div>
+  </div>
+</header>
+
+<section id="preview">
+  <div class="container">
+    <p class="kicker mb-2">Interface</p>
+    <h2 class="section-title mb-2">One engine, three native clients</h2>
+    <p class="section-lede mb-5">Windows, Android and Linux each get a client built for that platform, all speaking the same transfer protocol.</p>
+
+    <div class="row g-4 mb-4">
+      <div class="col-lg-7 reveal">
+        <p class="mono mb-2" style="font-size:.72rem;color:var(--dim)">Windows — Tauri + React</p>
+        <div class="device-frame">
+          <div class="win-titlebar">
+            <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+            <strong class="ms-2">AeroSync</strong>
+            <span class="win-status">Ready</span>
+          </div>
+          <div class="win-body">
+            <aside class="win-sidebar">
+              <div class="win-nav active"><svg viewBox="0 0 24 24" width="15" height="15" ><path d="M4 11.5 12 4l8 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10v9h5v-5h2v5h5v-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Home</div>
+              <div class="win-nav"><svg viewBox="0 0 24 24" width="15" height="15" ><rect x="3" y="4" width="13" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="15" width="7" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Devices</div>
+              <div class="win-nav"><svg viewBox="0 0 24 24" width="15" height="15" ><path d="M7 6h11l-3-3M17 18H6l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Transfers</div>
+              <div class="win-nav"><svg viewBox="0 0 24 24" width="15" height="15" ><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> History</div>
+              <div class="win-nav"><svg viewBox="0 0 24 24" width="15" height="15" ><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v2.5M12 18.5V21M4.2 4.2l1.8 1.8M18 18l1.8 1.8M3 12h2.5M18.5 12H21M4.2 19.8l1.8-1.8M18 6l1.8-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Settings</div>
+            </aside>
+            <main class="win-main">
+              <div class="win-hero">
+                <div>
+                  <span class="win-pill"><svg viewBox="0 0 24 24" width="12" height="12" ><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="currentColor"/></svg> High-Throughput P2P Engine</span>
+                  <h4>Ultra-Fast LAN File Transfer</h4>
+                  <p>AeroSync Core Daemon Ready</p>
+                </div>
+                <div class="win-actions">
+                  <div class="win-btn p"><svg viewBox="0 0 24 24" width="12" height="12" ><path d="M22 2 11 13M22 2 15 22l-4-9-9-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg> Send Files</div>
+                  <div class="win-btn s"><svg viewBox="0 0 24 24" width="12" height="12" ><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Send Folder</div>
+                </div>
+              </div>
+              <div class="win-stats">
+                <div class="win-stat"><div class="k">Nearby</div><div class="v">0</div><div class="h">0 peers</div></div>
+                <div class="win-stat"><div class="k">Active</div><div class="v">Idle</div></div>
+                <div class="win-stat"><div class="k">Network</div><div class="v" style="color:#5ed08a">Connected</div><div class="h">Direct P2P LAN</div></div>
+                <div class="win-stat"><div class="k">Free</div><div class="v">52 GB</div><div class="h">of 179.1 GB</div></div>
+              </div>
+              <div class="win-drop">
+                <div class="up-icon"><svg viewBox="0 0 24 24" width="17" height="17" ><path d="M7 18a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9a4 4 0 0 1 1 7.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v7M9 15l3-3 3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                <strong>Drag &amp; drop files or folders</strong>
+                <span>or click to browse local storage</span>
+              </div>
+              <div class="win-nearby"><span>Nearby Devices</span><span class="mono" style="font-size:.62rem;color:var(--mock-muted)">View all ›</span></div>
+              <div class="win-nearby-note">Scanning for nearby Windows and Android devices…</div>
+            </main>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5 reveal">
+        <p class="mono mb-2" style="font-size:.72rem;color:var(--dim)">Android — Native Mobile Client</p>
+        <div class="phone-shell">
+          <div class="phone-screen">
+            <div class="phone-topbar">
+              <div class="phone-brand"><svg viewBox="0 0 24 24" width="16" height="16" ><path d="M7 17a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9a4 4 0 0 1 1 7.9H7Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> AeroSync</div>
+            </div>
+            <div class="phone-tabs">
+              <div class="phone-tab active">Files</div><div class="phone-tab">Devices</div><div class="phone-tab">Activity</div>
+            </div>
+            <div class="phone-drop">
+              <div class="up"><svg viewBox="0 0 24 24" width="20" height="20" ><path d="M7 18a4 4 0 0 1-.6-7.96A5 5 0 0 1 16 9a4 4 0 0 1 1 7.9" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12v7M9 15l3-3 3 3" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <strong>Drop files here</strong>
+              <span>or tap to pick files</span>
+            </div>
+            <div class="phone-browse"><svg viewBox="0 0 24 24" width="14" height="14" ><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> Browse Files</div>
+            <div class="phone-rows">
+              <div class="phone-row"><span class="ic"><svg viewBox="0 0 24 24" width="12" height="12" ><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 3v2.5M12 18.5V21M4.2 4.2l1.8 1.8M18 18l1.8 1.8M3 12h2.5M18.5 12H21M4.2 19.8l1.8-1.8M18 6l1.8-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="copy"><strong>Settings &amp; Status</strong><small>Download location, network &amp; storage</small></div><span class="chev"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+              <div class="phone-row"><span class="ic"><svg viewBox="0 0 24 24" width="12" height="12" ><rect x="3" y="4" width="13" height="9" rx="1.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="15" width="7" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="copy"><strong>Nearby Peers</strong><small>Connected devices &amp; direct IP</small></div><span class="chev"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+              <div class="phone-row"><span class="ic"><svg viewBox="0 0 24 24" width="12" height="12" ><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 8v4l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div class="copy"><strong>Recent Transfers</strong><small>See your recent and active transfers</small></div><span class="chev"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            </div>
+            <div class="phone-secure"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M12 3 19 6v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Secure · Private · Local Transfer</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <p class="mono mb-2 d-flex align-items-center gap-2" style="font-size:.72rem;color:var(--dim)"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="#fff"/><circle cx="14" cy="7.9" r="0.9" fill="#fff"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="#fff"/></svg> Linux — Tauri Desktop Client</p>
+      <div class="device-frame">
+        <div class="win-titlebar">
+          <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+          <strong class="ms-2">aerosync — zsh</strong>
+          <span class="win-status">ready</span>
+        </div>
+        <div class="terminal p-3">
+          <div><span class="t-prompt">$</span> aerosync --daemon --status</div>
+          <div class="t-muted">→ engine: c++20 zero-copy · mode: p2p-lan</div>
+          <div class="t-muted">→ discovery: scanning 192.168.1.0/24 …</div>
+          <div><span class="t-ok">✓</span> peer found: DESKTOP-9F21 (192.168.1.42)</div>
+          <div><span class="t-ok">✓</span> pairing verified — PIN accepted</div>
+          <div class="t-muted">→ transfer: photos_backup.tar.gz (2.1 GB)</div>
+          <div class="t-ok">[██████████████████░░░░] 78% · 112 MB/s</div>
+          <div><span class="t-prompt">$</span> ▌</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture" class="alt">
+  <div class="container">
+    <p class="kicker mb-2">Under the hood</p>
+    <h2 class="section-title mb-5">Three layers, one shared core</h2>
+    <div class="card p-4 reveal">
+      <div class="row py-3 border-bottom align-items-center" style="border-color:var(--border)!important">
+        <div class="col-md-2 mono" style="font-size:.72rem;color:var(--dim)">01 · presentation</div>
+        <div class="col-md-10 d-flex flex-wrap gap-2 mt-2 mt-md-0">
+          <div class="arch-box">Windows Client<div class="d">React + TypeScript, Tauri shell</div></div>
+          <div class="arch-box">Android Client<div class="d">Native Android interface</div></div>
+          <div class="arch-box">Linux Client<div class="d">Tauri desktop shell</div></div>
+        </div>
+      </div>
+      <div class="row py-3 border-bottom align-items-center" style="border-color:var(--border)!important">
+        <div class="col-md-2 mono" style="font-size:.72rem;color:var(--dim)">02 · interop</div>
+        <div class="col-md-10 d-flex flex-wrap gap-2 mt-2 mt-md-0">
+          <div class="arch-box">Tauri IPC Bridge<div class="d">Native comms on Windows / Linux</div></div>
+          <div class="arch-box">JNI Bridge<div class="d">Native Android communication</div></div>
+        </div>
+      </div>
+      <div class="row py-3 align-items-center">
+        <div class="col-md-2 mono" style="font-size:.72rem;color:var(--dim)">03 · core engine</div>
+        <div class="col-md-10 d-flex flex-wrap gap-2 mt-2 mt-md-0">
+          <div class="arch-box core">Discovery<div class="d">Local peer discovery</div></div>
+          <div class="arch-box core">Pairing &amp; Auth<div class="d">PIN verification</div></div>
+          <div class="arch-box core">Connection Manager<div class="d">Persistent sessions</div></div>
+          <div class="arch-box core">Transfer Engine<div class="d">Optimized file streaming</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <p class="kicker mb-2">Capabilities</p>
+    <h2 class="section-title mb-5">Built for direct device-to-device transfer</h2>
+    <div class="row g-3">
+      <div class="col-sm-6 col-lg-3 reveal"><div class="card p-4 h-100"><div class="icon-chip mb-3"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" fill="currentColor"/></svg></div><h3 class="h6 fw-bold">High-speed transfer</h3><p class="small mb-0" style="color:var(--muted)">Optimized streaming for large files, videos and archives.</p></div></div>
+      <div class="col-sm-6 col-lg-3 reveal"><div class="card p-4 h-100"><div class="icon-chip mb-3"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M4.5 11a11 11 0 0 1 15 0M7.5 14.5a6.5 6.5 0 0 1 9 0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="18" r="1" fill="currentColor"/></svg></div><h3 class="h6 fw-bold">Local discovery</h3><p class="small mb-0" style="color:var(--muted)">Nearby devices found over LAN — no cloud storage involved.</p></div></div>
+      <div class="col-sm-6 col-lg-3 reveal"><div class="card p-4 h-100"><div class="icon-chip mb-3"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 3 19 6v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3 class="h6 fw-bold">Secure pairing</h3><p class="small mb-0" style="color:var(--muted)">Device verification helps prevent unknown transfers.</p></div></div>
+      <div class="col-sm-6 col-lg-3 reveal"><div class="card p-4 h-100"><div class="icon-chip mb-3"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3 class="h6 fw-bold">Batch transfer</h3><p class="small mb-0" style="color:var(--muted)">Multiple files and folders, structure preserved.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" class="alt">
+  <div class="container">
+    <p class="kicker mb-2">Getting started</p>
+    <h2 class="section-title mb-4">From download to first transfer</h2>
+    <ul class="nav nav-tabs reveal mb-3">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#t-win"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg> Windows</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-and"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M6.5 17V11.5a5.5 5.5 0 0 1 11 0V17H6.5Z" fill="currentColor"/><path d="M8.3 7.3 6.8 4.3M15.7 7.3 17.2 4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.75" cy="10.95" r=".85" fill="#fff"/><circle cx="14.25" cy="10.95" r=".85" fill="#fff"/></svg> Android</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-lin"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="#fff"/><circle cx="14" cy="7.9" r="0.9" fill="#fff"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="#fff"/></svg> Linux</button></li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="t-win">
+        <div class="step-row d-flex gap-3"><div class="step-num">01</div><div><strong>Download AeroSync</strong><p class="small mb-0" style="color:var(--muted)">Get the current Windows build from the release page.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">02</div><div><strong>Launch AeroSync</strong><p class="small mb-0" style="color:var(--muted)">Allow trusted network access if Windows asks.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">03</div><div><strong>Connect devices</strong><p class="small mb-0" style="color:var(--muted)">Join the same Wi-Fi or hotspot as your other device.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">04</div><div><strong>Pair &amp; transfer</strong><p class="small mb-0" style="color:var(--muted)">Select the discovered device and send files.</p></div></div>
+      </div>
+      <div class="tab-pane fade" id="t-and">
+        <div class="step-row d-flex gap-3"><div class="step-num">01</div><div><strong>Download the APK</strong><p class="small mb-0" style="color:var(--muted)">Get app-debug.1.apk from the release page.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">02</div><div><strong>Install &amp; grant permissions</strong><p class="small mb-0" style="color:var(--muted)">Allow install from source, then Nearby Devices / Storage access.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">03</div><div><strong>Join the same network</strong><p class="small mb-0" style="color:var(--muted)">Connect to the same Wi-Fi or hotspot.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">04</div><div><strong>Transfer</strong><p class="small mb-0" style="color:var(--muted)">Select the PC or Linux device and send files.</p></div></div>
+      </div>
+      <div class="tab-pane fade" id="t-lin">
+        <div class="step-row d-flex gap-3"><div class="step-num">01</div><div><strong>Choose a package</strong><p class="small mb-0" style="color:var(--muted)">AppImage, .deb, or the portable TAR.GZ.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">02</div><div><strong>Install or run</strong><p class="small mb-0" style="color:var(--muted)">Launch the AppImage or install the package.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">03</div><div><strong>Connect devices</strong><p class="small mb-0" style="color:var(--muted)">Join the same Wi-Fi or hotspot.</p></div></div>
+        <div class="step-row d-flex gap-3"><div class="step-num">04</div><div><strong>Pair &amp; transfer</strong><p class="small mb-0" style="color:var(--muted)">Select the discovered device and send files.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="container">
+    <p class="kicker mb-2">Trust</p>
+    <h2 class="section-title mb-5">Your files stay on your local network</h2>
+    <div class="row g-3">
+      <div class="col-md-4 reveal"><div class="card p-4 h-100"><div class="sec-check mb-3"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3 class="h6 fw-bold">No cloud transfer</h3><p class="small mb-0" style="color:var(--muted)">Local transfers stay between participating devices.</p></div></div>
+      <div class="col-md-4 reveal"><div class="card p-4 h-100"><div class="sec-check mb-3"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3 class="h6 fw-bold">Pairing protection</h3><p class="small mb-0" style="color:var(--muted)">Device verification helps prevent unknown transfers.</p></div></div>
+      <div class="col-md-4 reveal"><div class="card p-4 h-100"><div class="sec-check mb-3"><svg viewBox="0 0 24 24" width="13" height="13" ><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3 class="h6 fw-bold">Transfer integrity</h3><p class="small mb-0" style="color:var(--muted)">Checks help detect corrupted data where supported.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="alt">
+  <div class="container">
+    <div class="cta-panel p-5 text-center reveal">
+      <h2 class="section-title mb-2">Download AeroSync</h2>
+      <p class="mb-4" style="color:var(--muted);max-width:460px;margin-inline:auto">Available for Windows, Android and Linux. Pick your platform below.</p>
+      <div class="d-flex flex-wrap justify-content-center gap-3" id="platformButtonsCta">
+        <button class="platform-btn" data-os="windows" data-bs-toggle="modal" data-bs-target="#dlModal"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg> Windows</button>
+        <a class="platform-btn" data-os="android" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.1.apk"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M6.5 17V11.5a5.5 5.5 0 0 1 11 0V17H6.5Z" fill="currentColor"/><path d="M8.3 7.3 6.8 4.3M15.7 7.3 17.2 4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.75" cy="10.95" r=".85" fill="#fff"/><circle cx="14.25" cy="10.95" r=".85" fill="#fff"/></svg> Android</a>
+        <button class="platform-btn" data-os="linux" data-bs-toggle="modal" data-bs-target="#dlModal"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="#fff"/><circle cx="14" cy="7.9" r="0.9" fill="#fff"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="#fff"/></svg> Linux</button>
+      </div>
+      <p class="mono mt-4 mb-1" style="font-size:.7rem;color:var(--dim)">v1.0.7 · MIT Licensed · Windows 10/11 x64 · Android 8.0+ · Linux x86_64</p>
+      <a class="mono" style="font-size:.74rem" href="https://github.com/Atulsain011/Aero_sync/releases/tag/v1.0.7" target="_blank" rel="noopener">View full release notes →</a>
+    </div>
+  </div>
+</section>
+
+<div class="modal fade" id="dlModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="border-color:var(--border)">
+        <h5 class="modal-title fw-bold">Download AeroSync <span class="mono" style="font-size:.68rem;color:var(--dim)">v1.0.7</span></h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="dl-group" data-group="windows">
+          <p class="dl-group-label"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg> Windows</p>
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset mb-2" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-Setup-v1.0.7.exe" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg></span>
+            <span class="flex-fill"><strong class="d-flex align-items-center gap-2">Setup Installer <span class="badge badge-rec">RECOMMENDED</span></strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">AeroSync-Setup-v1.0.7.exe</span></span>
+            <span class="mono">↓</span>
+          </a>
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-Windows-v1.0.7.zip" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="16" height="16" ><path d="M4 7h16v13H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7V4h8v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="flex-fill"><strong>Portable ZIP</strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">AeroSync-Windows-v1.0.7.zip</span></span>
+            <span class="mono">↓</span>
+          </a>
+
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset mt-2" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync.exe" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 4.2 10.7 3v8H3V4.2Zm8.7-1.35L21 1.5v9.5h-9.3V2.85ZM3 13h7.7v8L3 19.8V13Zm8.7 0H21v9.5l-9.3-1.35V13Z" fill="currentColor"/></svg></span>
+            <span class="flex-fill"><strong>Standalone EXE</strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">AeroSync.exe</span></span>
+            <span class="mono">↓</span>
+          </a>
+        </div>
+
+        <div class="dl-group" data-group="android">
+          <p class="dl-group-label"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M6.5 17V11.5a5.5 5.5 0 0 1 11 0V17H6.5Z" fill="currentColor"/><path d="M8.3 7.3 6.8 4.3M15.7 7.3 17.2 4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.75" cy="10.95" r=".85" fill="#fff"/><circle cx="14.25" cy="10.95" r=".85" fill="#fff"/></svg> Android</p>
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.1.apk" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M6.5 17V11.5a5.5 5.5 0 0 1 11 0V17H6.5Z" fill="currentColor"/><path d="M8.3 7.3 6.8 4.3M15.7 7.3 17.2 4.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="9.75" cy="10.95" r=".85" fill="#fff"/><circle cx="14.25" cy="10.95" r=".85" fill="#fff"/></svg></span>
+            <span class="flex-fill"><strong>Android APK</strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">app-debug.1.apk</span></span>
+            <span class="mono">↓</span>
+          </a>
+        </div>
+
+        <div class="dl-group" data-group="linux">
+          <p class="dl-group-label"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="#fff"/><circle cx="14" cy="7.9" r="0.9" fill="#fff"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="#fff"/></svg> Linux</p>
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset mb-2" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/AeroSync-v1.0.7-x86_64.AppImage" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="18" height="18" ><path d="M12 2.2 9.3 3 7.6 5.2 7.2 7.8 6.2 9.5 5.3 12 5 15 5.3 18.5 7 20.8 9.8 21.9 12 22.2 14.2 21.9 17 20.8 18.7 18.5 19 15 18.7 12 17.8 9.5 16.8 7.8 16.4 5.2 14.7 3 12 2.2Z" fill="currentColor"/><circle cx="10" cy="7.9" r="0.9" fill="#fff"/><circle cx="14" cy="7.9" r="0.9" fill="#fff"/><path d="M11.1 9.3h1.8L12 10.6Z" fill="#fff"/></svg></span>
+            <span class="flex-fill"><strong>AppImage</strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">AeroSync-v1.0.7-x86_64.AppImage</span></span>
+            <span class="mono">↓</span>
+          </a>
+          <a class="choice d-flex align-items-center gap-3 text-decoration-none text-reset" href="https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/aerosync_1.0.7_amd64.deb" target="_blank" rel="noopener">
+            <span class="choice-icon"><svg viewBox="0 0 24 24" width="16" height="16" ><path d="M4 7h16v13H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 7V4h8v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="flex-fill"><strong>DEB Package</strong><span class="d-block mono" style="font-size:.68rem;color:var(--dim)">aerosync_1.0.7_amd64.deb</span></span>
+            <span class="mono">↓</span>
+          </a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="py-5" style="border-top:1px solid var(--border)">
+  <div class="container d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2 fw-bold"><span class="aero-logo"></span>AeroSync</div>
+    <div class="d-flex gap-4 mono" style="font-size:.8rem">
+      <a href="https://github.com/Atulsain011/Aero_sync" target="_blank" rel="noopener" style="color:var(--muted)">GitHub</a>
+      <a href="https://github.com/Atulsain011/Aero_sync/releases" target="_blank" rel="noopener" style="color:var(--muted)">Releases</a>
+      <a href="https://github.com/Atulsain011/Aero_sync/blob/main/LICENSE" target="_blank" rel="noopener" style="color:var(--muted)">MIT License</a>
+    </div>
+  </div>
+  <div class="container mono mt-3" style="font-size:.68rem;color:var(--dim)">Crafted by Atul (Atulsain011).</div>
+</footer>
+
+
+<script>
+/* ---------- TOP DEVICE DETECTION + PLATFORM-SPECIFIC DOWNLOAD ---------- */
+(function(){
+  const top=document.getElementById('topDirectDownload');
+  const text=document.getElementById('topDirectText');
+  const icon=document.getElementById('topDirectIcon');
+  const modalEl=document.getElementById('dlModal');
+  if(!top||!text) return;
+
+  const ua=navigator.userAgent||'';
+  const platform=navigator.platform||'';
+  let os=null;
+  if(/Android/i.test(ua)) os='android';
+  else if(/Windows/i.test(ua)||/Win/i.test(platform)) os='windows';
+  else if(/Linux/i.test(ua)&&!/Android/i.test(ua)) os='linux';
+
+  const apk='https://github.com/Atulsain011/Aero_sync/releases/download/v1.0.7/app-debug.1.apk';
+
+  top.addEventListener('click',function(){
+    if(os==='android'){
+      window.location.href=apk;
+      return;
+    }
+    if((os==='windows'||os==='linux') && modalEl && window.bootstrap){
+      modalEl.querySelectorAll('.dl-group').forEach(g=>{
+        g.style.display = g.dataset.group===os ? '' : 'none';
+      });
+      const title=modalEl.querySelector('.modal-title');
+      if(title) title.firstChild.nodeValue='Download AeroSync for '+(os==='windows'?'Windows':'Linux')+' ';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      return;
+    }
+    const d=document.getElementById('download');
+    if(d)d.scrollIntoView({behavior:'smooth'});
+  });
+
+  if(os==='windows') text.textContent='Download for Windows';
+  else if(os==='android') text.textContent='Download for Android';
+  else if(os==='linux') text.textContent='Download for Linux';
+  else text.textContent='View Downloads';
+  icon.textContent='↓';
+
+  // Keep the lower download CTA usable and highlighted for detected platform.
+  if(os){
+    document.querySelectorAll('.platform-btn[data-os="'+os+'"]').forEach(btn=>btn.classList.add('is-detected'));
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+document.querySelectorAll('.reveal').forEach(el=>{
+  new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.15}).observe(el);
+});
+
+</script>
+</body>
+</html>
